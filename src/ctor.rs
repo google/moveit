@@ -28,7 +28,7 @@ use core::ptr;
 use crate::unique::DerefMove;
 
 #[cfg(doc)]
-use {alloc::{boxed::Box, rc::Rc, sync::Arc}};
+use alloc::{boxed::Box, rc::Rc, sync::Arc};
 
 /// An in-place constructor for a particular type.
 ///
@@ -257,7 +257,7 @@ pub trait Emplace<T>: Sized {
       Err(e) => match e {},
     }
   }
-  
+
   /// Constructs a new smart pointer and tries to emplace `c` into its storage.
   fn try_emplace<C: TryCtor<Output = T>>(c: C) -> Result<Pin<Self>, C::Error>;
 }
