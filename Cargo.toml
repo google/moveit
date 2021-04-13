@@ -16,11 +16,13 @@
 name = "moveit"
 version = "0.1.0"
 authors = ["Miguel Young de la Sota <mcyoung@google.edu>"]
-license = "Apache-2.0"
 edition = "2018"
-keywords = ["ffi", "no_std", "macros", "lifetime", "ownership"]
+repository = "https://github.com/google/moveit"
 
-[dependencies]
+keywords = ["ffi", "no_std", "macros", "lifetime", "ownership"]
+readme = "README.crates-io.md"
+license = "Apache-2.0"
+description = "A library for safe, in-place construction of Rust (and C++!) objects."
 
 [features]
 alloc = []
