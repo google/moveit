@@ -13,7 +13,7 @@
 // limitations under the License.
 
 //! Stack-based owning pointers, for emplacement on the stack.
-//! 
+//!
 //! A [`StackBox`] can be created using the [`stackbox!()`] macro:
 //! ```
 //! # use moveit::stackbox;
@@ -25,7 +25,7 @@
 //! goes out of scope. However, a [`StackBox`] cannot escape the scope it is
 //! created in, since its storage is destroyed once that stack frame ends.
 //! Thus, [`StackBox`]es cannot be returned directly.
-//! 
+//!
 //! A [`Slot`] is uninitialized storage for a [`StackBox`], which can be
 //! consumed to produce a [`StackBox`]. [`Slot`]s mut be created with the
 //! [`slot!()`] macro:
@@ -36,7 +36,7 @@
 //! *x /= 2;
 //! assert_eq!(*x, 21);
 //! ```
-//! 
+//!
 //! [`Slot`]s can also be used to implement a sort of "guaranteed RVO":
 //! ```
 //! # use moveit::{slot, Slot, StackBox};
@@ -46,12 +46,12 @@
 //!   }
 //!   Some(StackBox::new(val, storage))
 //! }
-//! 
+//!
 //! slot!(storage);
 //! let val = returns_on_the_stack(42, storage);
 //! assert_eq!(*val.unwrap(), 42);
 //! ```
-//! 
+//!
 //! Because they are pointer-like but uniquely own their contents, [`Ctor`]s
 //! can be emplaced on the stack using [`StackBox`], but way of [`StackBox::emplace()`]
 //! or the [`emplace!()`] macro.
@@ -187,7 +187,7 @@ impl<'frame, T> StackBox<'frame, T> {
   }
 
   /// Consumes this `StackBox`, returning the stack-bound reference inside.
-  /// 
+  ///
   /// This function is analogous to [`Box::leak()`]; it is the caller's
   /// responsibility to call `T`'s destructor.
   pub fn leak(this: Self) -> &'frame mut T {
@@ -282,7 +282,7 @@ macro_rules! emplace {
 /// # use moveit::{stackbox, StackBox};
 /// stackbox!(let x = 5);
 /// stackbox! {
-///   let y: StackBox<i32> = x.into_inner();
+///   let y: StackBox<i32> = StackBox::into_inner(x);
 ///   let mut z = *y as u64;
 /// }
 /// # let _ = z;
