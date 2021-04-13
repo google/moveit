@@ -13,9 +13,9 @@
 // limitations under the License.
 
 //! A library for safe, in-place construction of Rust (and C++!) objects.
-//! 
+//!
 //! # How It Works
-//! 
+//!
 //! `moveit` revolves around `unsafe trait`s that impose additional guarantees
 //! on `!Unpin` types, such that they can be moved in the C++ sense. There are
 //! two senses of "move" frequently used:
@@ -30,7 +30,7 @@
 //! value in a particular location. In particular, C++ constructors may assume
 //! that the address of `*this` will not change; all C++ objects are effectively
 //! pinned and new objects must be constructed using copy or move constructors.
-//! 
+//!
 //! The [`Ctor`], [`CopyCtor`], and [`MoveCtor`] traits bring these concepts
 //! into Rust. A [`Ctor`] is like a nilary [`FnOnce`], except that instead of
 //! returning its result, it writes it to a `Pin<&mut MaybeUninit<T>>`, which is
@@ -38,27 +38,27 @@
 //! [`Pin` documentation] (i.e., either it is freshly allocated or the
 //! destructor was recently run). This allows a [`Ctor`] to rely on the
 //! pointer's address remaining stable, much like `*this` in C++.
-//! 
+//!
 //! Types that implement [`CopyCtor`] may be *copy-constructed*: given any
 //! pointer to `T: CopyCtor`, we can generate a constructor that constructs a
 //! new, identical `T` at a designated location. [`MoveCtor`] types may be
 //! *move-constructed*: given an *owning* pointer (see [`DerefMove`]) to `T`,
 //! we can generate a similar constructor, except that it also destroys the
 //! `T` and the owning pointer's storage.
-//! 
+//!
 //! None of this violates the existing `Pin` guarantees: moving out of a
 //! `Pin<P>` does not perform a move in the Rust sense, but rather in the C++
 //! sense: it mutates through the pinned pointer in a safe manner to construct
 //! a new `P::Target`, and then destroys the pointer and its contents.
-//! 
+//!
 //! In general, move-constructible types are going to want to be `!Unpin` so
 //! that they can be self-referential. Self-referential types are one of the
 //! primary motivations for move constructors.
-//! 
+//!
 //! # Constructors
-//! 
+//!
 //! A constructor is any type that implements [`Ctor`]. Constructors are like
-//! closures that have guaranteed RVO, which can be used to construct a 
+//! closures that have guaranteed RVO, which can be used to construct a
 //! self-referential type in-place. To use the example from the `Pin<T>` docs:
 //! ```
 //! use std::marker::PhantomPinned;
@@ -116,30 +116,30 @@
 //! // Since our type doesn't implement Unpin, this will fail to compile:
 //! // let mut new_unmoved = Unmovable::new("world".to_string());
 //! // std::mem::swap(&mut *still_unmoved, &mut *new_unmoved);
-//! 
+//!
 //! // However, we can implement `MoveCtor` to allow it to be "moved" again.
 //! ```
-//! 
+//!
 //! The [`ctor`] module provides various helpers for making constructors. As a
 //! rule, functions which, in Rust, would normally construct and return a value
 //! should return `impl Ctor` instead. This is analogous to have `async fn`s and
 //! `.iter()` functions work.
-//! 
+//!
 //! In the future, we may provide a `#[ctor]` macro for streamlining [`Ctor`]
 //! definition.
-//! 
+//!
 //! # Emplacement
-//! 
+//!
 //! The example above makes use of the [`emplace!()`] macro, one of many ways to
 //! turn a constructor into a value. `moveit` gives you two choices for running
 //! a constructor:
 //! - On the stack, using the [`StackBox`] type (this is what [`emplace!()`]
 //!   generates).
 //! - On the heap, using the extension methods from the [`Emplace`] trait.
-//! 
+//!
 //! For example, we could have placed the above in a `Box` by writing
 //! `Box::emplace(Unmovable::new())`.
-//! 
+//!
 //! [`Pin` documentation]: https://doc.rust-lang.org/std/pin/index.html#drop-guarantee
 
 #![no_std]
@@ -160,6 +160,6 @@ use unique::DerefMove;
 
 // #[doc(inline)]
 pub use crate::{
-  ctor::{Ctor, TryCtor, MoveCtor, CopyCtor, Emplace, Assign},
+  ctor::{Assign, CopyCtor, Ctor, Emplace, MoveCtor, TryCtor},
   stackbox::{Slot, StackBox},
 };
