@@ -1,0 +1,35 @@
+name: Rust
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build_and_test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install Toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+        components: rustfmt
+
+    - name: Check format
+      run: cargo fmt -- --check --files-with-diff
+
+    - name: Build with default settings
+      run: cargo build --verbose
+    - name: Build with no features
+      run: cargo build --verbose --no-default-features
+    - name: Build with all features
+      run: cargo build --verbose --all-features
+
+    - name: Run tests
+      run: cargo test --verbose
