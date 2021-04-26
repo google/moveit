@@ -15,7 +15,7 @@
 [package]
 name = "moveit"
 version = "0.1.0"
-authors = ["Miguel Young de la Sota <mcyoung@google.edu>"]
+authors = ["Miguel Young de la Sota <mcyoung@google.com>"]
 edition = "2018"
 repository = "https://github.com/google/moveit"
 
