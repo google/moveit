@@ -2,7 +2,8 @@
 
 A library for safe, in-place construction of Rust (and C++!) objects.
 
-(Blogpost coming soon.)
+Read more on the theoretical underpinnings:
+https://mcyoung.xyz/2021/04/26/move-ctors/
 
 ---
 
