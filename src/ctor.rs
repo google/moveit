@@ -21,9 +21,7 @@ use core::marker::PhantomData;
 use core::mem;
 use core::mem::MaybeUninit;
 use core::ops::Deref;
-use core::ops::DerefMut;
 use core::pin::Pin;
-use core::ptr;
 
 use crate::unique::DerefMove;
 
@@ -332,61 +330,5 @@ where
       // Because `*ptr` is still intact, we can drop it normally.
       mem::drop(ptr)
     })
-  }
-}
-
-/// Extension trait for adding [`assign()`] to `Pin<&mut T>`.
-pub trait Assign: Sized {
-  /// See [`assign()`].
-  #[inline]
-  fn assign<C: Ctor<Output = Self>>(self: Pin<&mut Self>, ctor: C) {
-    assign(self, ctor)
-  }
-
-  /// See [`try_assign()`].
-  #[inline]
-  fn try_assign<C: TryCtor<Output = Self>>(
-    self: Pin<&mut Self>,
-    ctor: C,
-  ) -> Result<(), C::Error> {
-    try_assign(self, ctor)
-  }
-}
-
-impl<T> Assign for T {}
-
-/// Assigns a new value into `lvalue`, destroying the previous occupant.
-///
-/// This function plays the equivalent role of C++'s `operator=`.
-pub fn assign<P, C>(mut lvalue: Pin<P>, ctor: C)
-where
-  P: DerefMut,
-  P::Target: Sized,
-  C: Ctor<Output = P::Target>,
-{
-  unsafe {
-    let inner = lvalue.as_mut().get_unchecked_mut() as *mut P::Target;
-    ptr::drop_in_place(inner);
-    ctor.ctor(Pin::new_unchecked(
-      &mut *inner.cast::<MaybeUninit<P::Target>>(),
-    ));
-  }
-}
-
-/// Assigns a new value into `lvalue`, destroying the previous occupant.
-///
-/// This function plays the equivalent role of C++'s `operator=`.
-pub fn try_assign<P, C>(mut lvalue: Pin<P>, ctor: C) -> Result<(), C::Error>
-where
-  P: DerefMut,
-  P::Target: Sized,
-  C: TryCtor<Output = P::Target>,
-{
-  unsafe {
-    let inner = lvalue.as_mut().get_unchecked_mut() as *mut P::Target;
-    ptr::drop_in_place(inner);
-    ctor.try_ctor(Pin::new_unchecked(
-      &mut *inner.cast::<MaybeUninit<P::Target>>(),
-    ))
   }
 }
