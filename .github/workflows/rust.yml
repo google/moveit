@@ -12,12 +12,22 @@ env:
 jobs:
   build_and_test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust:
+          - stable
+          - nightly
+        include:
+          - rust: stable
+            all_features: "--features alloc" # "alloc"
+          - rust: nightly
+            all_features: "--all-features" # "alloc" + "nightly"
     steps:
     - uses: actions/checkout@v2
     - name: Install Toolchain
       uses: actions-rs/toolchain@v1
       with:
-        toolchain: stable
+        toolchain: ${{ matrix.rust }}
         override: true
         components: rustfmt
 
@@ -29,7 +39,7 @@ jobs:
     - name: Build with no features
       run: cargo build --verbose --no-default-features
     - name: Build with all features
-      run: cargo build --verbose --features alloc
+      run: cargo build --verbose ${{ matrix.all_features }}
 
     - name: Run tests
       run: cargo test --verbose
