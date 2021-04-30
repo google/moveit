@@ -144,6 +144,7 @@
 
 #![no_std]
 #![deny(warnings, missing_docs, unused)]
+#![cfg_attr(feature = "nightly", feature(new_uninit))]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;

@@ -78,7 +78,14 @@ unsafe impl<T> MaybeUnique for Arc<T> {
 
 impl<T> Emplace<T> for Box<T> {
   fn try_emplace<C: TryCtor<Output = T>>(c: C) -> Result<Pin<Self>, C::Error> {
-    let mut uninit = Box::new(MaybeUninit::<T>::uninit());
+    let mut uninit = unsafe {
+      let layout = Layout::new::<T>();
+      let ptr = alloc::alloc::alloc(layout).cast::<MaybeUninit<T>>();
+      if ptr.is_null() {
+        alloc::alloc::handle_alloc_error(layout)
+      }
+      Box::from_raw(ptr)
+    };
     unsafe {
       let pinned = Pin::new_unchecked(&mut *uninit);
       c.try_ctor(pinned)?;
@@ -91,6 +98,9 @@ impl<T> Emplace<T> for Box<T> {
 
 impl<T> Emplace<T> for Rc<T> {
   fn try_emplace<C: TryCtor<Output = T>>(c: C) -> Result<Pin<Self>, C::Error> {
+    #[cfg(feature = "nightly")]
+    let uninit = Rc::<T>::new_uninit();
+    #[cfg(not(feature = "nightly"))]
     let uninit = Rc::new(MaybeUninit::<T>::uninit());
     unsafe {
       let pinned = Pin::new_unchecked(&mut *(Rc::as_ptr(&uninit) as *mut _));
@@ -104,6 +114,9 @@ impl<T> Emplace<T> for Rc<T> {
 
 impl<T> Emplace<T> for Arc<T> {
   fn try_emplace<C: TryCtor<Output = T>>(c: C) -> Result<Pin<Self>, C::Error> {
+    #[cfg(feature = "nightly")]
+    let uninit = Arc::<T>::new_uninit();
+    #[cfg(not(feature = "nightly"))]
     let uninit = Arc::new(MaybeUninit::<T>::uninit());
     unsafe {
       let pinned = Pin::new_unchecked(&mut *(Arc::as_ptr(&uninit) as *mut _));
