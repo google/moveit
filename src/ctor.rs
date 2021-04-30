@@ -250,6 +250,16 @@ pub fn try_from<T: TryFrom<U>, U>(
 /// This enables an `emplace()` method for [`Box`], [`Rc`], and [`Arc`]. Users
 /// are encouraged to implement this function for their own heap-allocated smart
 /// pointers.
+///
+/// # Caveats
+/// Emplacing large types on heap by [`Rc`] and [`Arc`] may cause
+/// stack overflow until [uninitialized constructors][rust_issue_63291]
+/// are stable.
+///
+/// Turn on the `nightly` feature to enable the unstable methods
+/// which can get rid of the unnecessary copies from stack to heap.
+///
+/// [rust_issue_63291]: https://github.com/rust-lang/rust/issues/63291
 pub trait Emplace<T>: Sized {
   /// Constructs a new smart pointer and emplaces `c` into its storage.
   fn emplace<C: Ctor<Output = T>>(c: C) -> Pin<Self> {
