@@ -160,6 +160,6 @@ use unique::DerefMove;
 
 // #[doc(inline)]
 pub use crate::{
-  ctor::{Assign, CopyCtor, Ctor, Emplace, MoveCtor, TryCtor},
+  ctor::{CopyCtor, Ctor, Emplace, MoveCtor, TryCtor},
   stackbox::{Slot, StackBox},
 };
