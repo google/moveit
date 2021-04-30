@@ -129,6 +129,7 @@ unsafe impl<P: DerefMove> MaybeUnique for P {
 }
 */
 
+#[allow(clippy::transmute_ptr_to_ptr)]
 unsafe impl<P: MaybeUnique> MaybeUnique for Pin<P> {
   fn is_unique(&self) -> bool {
     // SAFETY: Pin<P> is repr(transparent), and the no-unpin guarantees of

@@ -229,7 +229,10 @@ where
   F: FnOnce() -> Result<T, E>,
 {
   unsafe {
-    from_placement_try_fn(|mut dest| Ok(dest.set(MaybeUninit::new(f()?))))
+    from_placement_try_fn(|mut dest| {
+      dest.set(MaybeUninit::new(f()?));
+      Ok(())
+    })
   }
 }
 
