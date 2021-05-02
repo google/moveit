@@ -22,7 +22,7 @@
 
 // A libstdc++-style SSO string, which uses a self-pointer (and is thus not
 // trivially relocatable).
-// 
+//
 // We implement a subset of the C++ std::string API.
 class InlineString {
  public:
@@ -35,7 +35,8 @@ class InlineString {
   // Create a string from the given data and length.
   InlineString(const char* data, std::size_t len);
 
-  InlineString(const InlineString& that) : InlineString(that.data(), that.size()) {}
+  InlineString(const InlineString& that)
+      : InlineString(that.data(), that.size()) {}
   InlineString& operator=(const InlineString& that);
   InlineString(InlineString&& that) { *this = that; }
   InlineString& operator=(InlineString&& that);
@@ -49,27 +50,17 @@ class InlineString {
   const char* data() const { return data_; }
   const char* c_str() const { return data_; }
 
-  bool empty() const {
-    return size() == 0;
-  }
-  std::size_t size() const {
-    return IsSso() ? std::strlen(data_) : repr_.len_; 
-  }
-  std::size_t length() const {
-    return size();
-  }
+  bool empty() const { return size() == 0; }
+  std::size_t size() const { return IsSso() ? std::strlen(data_) : repr_.len_; }
+  std::size_t length() const { return size(); }
 
   std::size_t capacity() const {
-    return IsSso() ? sizeof(repr_) - 1 : repr_.cap_; 
+    return IsSso() ? sizeof(repr_) - 1 : repr_.cap_;
   }
   void reserve(std::size_t new_cap);
 
-  const char& operator[](std::size_t idx) const {
-    return data_[idx];
-  }
-  char& operator[](std::size_t idx) {
-    return data_[idx];
-  }
+  const char& operator[](std::size_t idx) const { return data_[idx]; }
+  char& operator[](std::size_t idx) { return data_[idx]; }
 
   void clear();
   void push_back(char c);

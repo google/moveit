@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // FFI bindings on the C++ side.
-// 
+//
 // These thunks are technically all unnecessary with intimate knowledge of the
 // ABI, and are provided like this mostly to avoid having to think about it.
 
@@ -23,7 +23,8 @@
 #include <utility>
 
 #ifndef NDEBUG
-#define TRACE(name, ...) std::fprintf(stderr, "  FFI call: `" name "`\n" ,##__VA_ARGS__)
+#define TRACE(name, ...) \
+  std::fprintf(stderr, "  FFI call: `" name "`\n", ##__VA_ARGS__)
 #else
 #define TRACE(...)
 #endif
@@ -40,7 +41,8 @@ InlineString* ffi_InlineString_ctor_c_str(void* buf, const char* c_str) {
   return new (buf) InlineString(c_str);
 }
 
-InlineString* ffi_InlineString_ctor_bytes(void* buf, const char* data, std::size_t len) {
+InlineString* ffi_InlineString_ctor_bytes(void* buf, const char* data,
+                                          std::size_t len) {
   TRACE("InlineString(const char*, size_t)");
   return new (buf) InlineString(data, len);
 }
@@ -92,7 +94,8 @@ void ffi_InlineString_reserve(InlineString* self, std::size_t new_cap) {
   self->reserve(new_cap);
 }
 
-const char* ffi_InlineString_operator_index_const(const InlineString* self, std::size_t index) {
+const char* ffi_InlineString_operator_index_const(const InlineString* self,
+                                                  std::size_t index) {
   TRACE("InlineString::operator[](%p)", self);
   return &(*self)[index];
 }

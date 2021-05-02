@@ -22,13 +22,12 @@ fn main() {
     .cpp(true)
     .file("src/inline_string.cc")
     .file("src/ffi.cc")
-    .flag("-std=c++17")
-    .flag("-fembed-bitcode");
+    .flag("-std=c++17");
 
   if is_release() {
     cc.define("NDEBUG", None)
-    .flag("-fembed-bitcode")
-    .flag("-O3");
+      .flag("-fembed-bitcode")
+      .flag("-O3");
   }
 
   cc.compile("interop-example-cc");

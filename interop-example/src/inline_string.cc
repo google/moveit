@@ -16,7 +16,7 @@
 
 InlineString::InlineString(const char* data, std::size_t len) {
   auto actual_len = len + 1;  // Account for a nul.
-  if (actual_len > sizeof(repr_))  {
+  if (actual_len > sizeof(repr_)) {
     data_ = new char[actual_len];
     repr_.len_ = len;
     repr_.cap_ = len;
@@ -26,11 +26,11 @@ InlineString::InlineString(const char* data, std::size_t len) {
   data_[len] = '\0';
 }
 
-  InlineString& InlineString::operator=(const InlineString& that) {
-    reserve(that.size());
-    std::strcpy(data_, that.data_);
-    return *this;
-  }
+InlineString& InlineString::operator=(const InlineString& that) {
+  reserve(that.size());
+  std::strcpy(data_, that.data_);
+  return *this;
+}
 
 InlineString& InlineString::operator=(InlineString&& that) {
   if (that.IsSso()) {
@@ -47,47 +47,46 @@ InlineString& InlineString::operator=(InlineString&& that) {
   return *this;
 }
 
-  void InlineString::reserve(std::size_t new_cap) {
-    if (new_cap < capacity()) {
-      return;
-    }
-
-    // Growing the buffer always switches us over to heap mode.
-    //
-    // For illustration's sake, we're not going to fuss with realloc().
-    new_cap = std::max(capacity() * 2, new_cap);
-    auto* new_buf = new char[new_cap];
-    auto len = size();
-    std::memcpy(new_buf, data_, len + 1);
-    data_ = new_buf;
-    repr_.len_ = len;
-    repr_.cap_ = new_cap;
+void InlineString::reserve(std::size_t new_cap) {
+  if (new_cap < capacity()) {
+    return;
   }
 
+  // Growing the buffer always switches us over to heap mode.
+  //
+  // For illustration's sake, we're not going to fuss with realloc().
+  new_cap = std::max(capacity() * 2, new_cap);
+  auto* new_buf = new char[new_cap];
+  auto len = size();
+  std::memcpy(new_buf, data_, len + 1);
+  data_ = new_buf;
+  repr_.len_ = len;
+  repr_.cap_ = new_cap;
+}
 
-  void InlineString::clear() {
-    if (!IsSso()) {
-      repr_.len_ = 0;
-    }
-    data_[0] = '\0';
+void InlineString::clear() {
+  if (!IsSso()) {
+    repr_.len_ = 0;
   }
+  data_[0] = '\0';
+}
 
-  void InlineString::push_back(char c) {
-    auto len = size();
-    reserve(len + 1);
-    data_[len] = c;
-    data_[len + 1] = '\0';
-    if (!IsSso()) {
-      ++repr_.len_;
-    }
+void InlineString::push_back(char c) {
+  auto len = size();
+  reserve(len + 1);
+  data_[len] = c;
+  data_[len + 1] = '\0';
+  if (!IsSso()) {
+    ++repr_.len_;
   }
+}
 
-  char InlineString::pop_back() {
-    auto len = size();
-    auto c = data_[len - 1];
-    data_[len - 1] = '\0';
-    if (!IsSso()) {
-      --repr_.len_;
-    }
-    return c;
+char InlineString::pop_back() {
+  auto len = size();
+  auto c = data_[len - 1];
+  data_[len - 1] = '\0';
+  if (!IsSso()) {
+    --repr_.len_;
   }
+  return c;
+}
