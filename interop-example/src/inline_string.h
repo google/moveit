@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <new>
 
 // A libstdc++-style SSO string, which uses a self-pointer (and is thus not
 // trivially relocatable).

@@ -12,8 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+fn is_release() -> bool {
+  std::env::var("OUT_DIR").unwrap().contains("release")
+}
+
 fn main() {
-  cc::Build::new()
+  let mut cc = cc::Build::new();
+  cc.compiler("clang++")
+    .cpp(true)
     .file("src/inline_string.cc")
-    .compile("interop-example-cc");
+    .file("src/ffi.cc")
+    .flag("-std=c++17")
+    .flag("-fembed-bitcode");
+
+  if is_release() {
+    cc.define("NDEBUG", None)
+    .flag("-fembed-bitcode")
+    .flag("-O3");
+  }
+
+  cc.compile("interop-example-cc");
 }

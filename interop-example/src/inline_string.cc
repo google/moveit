@@ -17,7 +17,7 @@
 InlineString::InlineString(const char* data, std::size_t len) {
   auto actual_len = len + 1;  // Account for a nul.
   if (actual_len > sizeof(repr_))  {
-    data_ = new char[len];
+    data_ = new char[actual_len];
     repr_.len_ = len;
     repr_.cap_ = len;
   }
@@ -55,10 +55,13 @@ InlineString& InlineString::operator=(InlineString&& that) {
     // Growing the buffer always switches us over to heap mode.
     //
     // For illustration's sake, we're not going to fuss with realloc().
-    repr_.cap_ = std::max(capacity() * 2, new_cap);
-    auto* new_buf = new char[repr_.cap_ + 1];
-    std::memcpy(new_buf, data_, size() + 1);
+    new_cap = std::max(capacity() * 2, new_cap);
+    auto* new_buf = new char[new_cap];
+    auto len = size();
+    std::memcpy(new_buf, data_, len + 1);
     data_ = new_buf;
+    repr_.len_ = len;
+    repr_.cap_ = new_cap;
   }
 
 
