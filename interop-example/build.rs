@@ -14,5 +14,6 @@
 
 fn main() {
   cc::Build::new()
+    .file("src/inline_string.cc")
     .compile("interop-example-cc");
 }
