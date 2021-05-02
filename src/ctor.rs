@@ -291,7 +291,7 @@ where
 {
   unsafe {
     from_placement_fn(move |dest| {
-      MoveCtor::move_ctor(&mut *ptr, dest);
+      MoveCtor::move_ctor(&mut *(&*ptr as *const _ as *mut _), dest);
 
       // Destroy `p`'s storage without running the pointee's
       // destructor.

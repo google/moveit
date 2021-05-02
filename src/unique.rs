@@ -51,6 +51,13 @@ pub unsafe trait OuterDrop {
   unsafe fn outer_drop(this: *mut Self);
 }
 
+unsafe impl<P: OuterDrop> OuterDrop for Pin<P> {
+  unsafe fn outer_drop(this: *mut Self) {
+    // `Pin` is transparent.
+    P::outer_drop(this as *mut P);
+  }
+}
+
 /// Moving dereference operations.
 ///
 /// A type which implements `DerefMove` is the *sole owner* is its pointee; that
@@ -94,7 +101,9 @@ pub unsafe trait OuterDrop {
 ///   }
 /// }
 /// ```
-pub unsafe trait DerefMove: DerefMut + OuterDrop {}
+pub unsafe trait DerefMove: Deref + OuterDrop {}
+
+unsafe impl<P: Deref + OuterDrop> DerefMove for Pin<P> {}
 
 /// An owning pointer type that may be a unique owner.
 ///
@@ -223,4 +232,4 @@ unsafe impl<P: OuterDrop> OuterDrop for Unique<P> {
 }
 
 // SAFETY: By definition of `MaybeUnique`.
-unsafe impl<P: DerefMut + OuterDrop> DerefMove for Unique<P> {}
+unsafe impl<P: Deref + OuterDrop> DerefMove for Unique<P> {}
