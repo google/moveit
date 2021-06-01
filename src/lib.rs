@@ -153,8 +153,10 @@ mod alloc_support;
 
 pub mod move_ref;
 
+pub mod slot;
+
 pub mod ctor;
-pub mod stackbox;
+//pub mod stackbox;
 pub mod unique;
 
 #[cfg(doc)]
@@ -163,5 +165,5 @@ use unique::DerefMove;
 // #[doc(inline)]
 pub use crate::{
   ctor::{CopyCtor, Ctor, Emplace, MoveCtor, TryCtor},
-  stackbox::{Slot, StackBox},
+  slot::Slot,
 };
