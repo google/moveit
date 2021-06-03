@@ -25,6 +25,7 @@ use core::pin::Pin;
 
 use crate::move_ref::DerefMove;
 use crate::move_ref::MoveRef;
+use crate::move_ref::PinExt as _;
 
 #[cfg(doc)]
 use alloc::{boxed::Box, rc::Rc, sync::Arc};
@@ -278,20 +279,24 @@ pub unsafe trait MoveCtor: Sized {
   /// The same safety requirements of [`Ctor::ctor()`] apply, but, in addition,
   /// `*src` must not be used after this function is called, because it has
   /// effectively been destroyed.
-  unsafe fn move_ctor(src: MoveRef<Self>, dest: Pin<&mut MaybeUninit<Self>>);
+  unsafe fn move_ctor(
+    src: Pin<MoveRef<Self>>,
+    dest: Pin<&mut MaybeUninit<Self>>,
+  );
 }
 
 /// Returns a new `Ctor` that uses a move constructor.
 #[inline]
-pub fn mov<P>(ptr: P) -> impl Ctor<Output = P::Target>
+pub fn mov<P>(ptr: impl Into<Pin<P>>) -> impl Ctor<Output = P::Target>
 where
   P: DerefMove,
   P::Target: MoveCtor,
 {
+  let ptr = ptr.into();
   unsafe {
     from_placement_fn(move |dest| {
-      crate::move_ref!(ptr);
-      MoveCtor::move_ctor(ptr, dest);
+      crate::moveit!(let ptr = &move ptr);
+      MoveCtor::move_ctor(Pin::as_move(ptr), dest);
     })
   }
 }
