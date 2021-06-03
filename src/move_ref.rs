@@ -35,7 +35,7 @@ use alloc::{boxed::Box, rc::Rc, sync::Arc};
 /// `MoveRef<T>` owns its referent, but not its referent's storage.
 /// See the [module docs][`crate::move_ref`] for more information.
 ///
-/// The main mechanism for obtaining `MoveRef`s is the [`move_ref!()`] macro,
+/// The main mechanism for obtaining `MoveRef`s is the [`moveit!()`] macro,
 /// which is analogous to a theoretical `&move expr` operator. This actuates
 /// a [`DerefMove`] implementation.
 pub struct MoveRef<'a, T: ?Sized> {
@@ -49,7 +49,7 @@ impl<'a, T: ?Sized> MoveRef<'a, T> {
   ///
   /// `ptr` must satisfy the *longest-lived* criterion: after the return value
   /// goes out of scope, `ptr` must also be out-of-scope. Calling this function
-  /// correctly is non-trivial, and should be left to [`move_ref!()`] instead.
+  /// correctly is non-trivial, and should be left to [`moveit!()`] instead.
   ///
   /// In particular, if `ptr` outlives the returned `MoveRef`, it will point
   /// to dropped memory, which is UB.
@@ -178,15 +178,15 @@ impl<'a, T> From<MoveRef<'a, T>> for Pin<MoveRef<'a, T>> {
 ///
 /// The correct way to perform a `DerefMove` operation is thus:
 /// ```
-/// # use moveit::{move_ref::{DerefMove, MoveRef}, slot::Slot};
+/// # use moveit::{DerefMove, MoveRef, Slot, slot};
 /// # slot!(x: i32);
-/// # let p = slot.put(5);
+/// # let p = x.put(5);
 /// # type MyPtr<'a> = MoveRef<'a, i32>;
 /// let mut deinit = MyPtr::deinit(p);
 /// let move_ref = unsafe { MyPtr::deref_move(&mut deinit) };
 /// ```
 ///
-/// The [`move_ref!()`]` macro can do this safely in a single operation.
+/// The [`moveit!()`]` macro can do this safely in a single operation.
 ///
 /// # Safety
 ///
@@ -194,7 +194,7 @@ impl<'a, T> From<MoveRef<'a, T>> for Pin<MoveRef<'a, T>> {
 /// described above is upheld. In particular, the following function *must not*
 /// violate memory safety:
 /// ```
-/// # use moveit::move_it::{DerefMove, move_ref, MoveRef};
+/// # use moveit::{DerefMove, MoveRef, moveit};
 /// fn move_out_of<P>(p: P) -> P::Target
 /// where
 ///   P: DerefMove,
@@ -202,7 +202,7 @@ impl<'a, T> From<MoveRef<'a, T>> for Pin<MoveRef<'a, T>> {
 /// {
 ///   unsafe {
 ///     // Replace `p` with a move reference into it.
-///     move_ref!(p);
+///     moveit!(let p = &move *p);
 ///     
 ///     // Move out of `p`. From this point on, the `P::Target` destructor must
 ///     // run when, and only when, the function's return value goes out of
@@ -274,9 +274,10 @@ where
 pub trait PinExt<P: DerefMove> {
   /// Gets a pinned `MoveRef` out of the pinned pointer.
   ///
-  /// This function is best paired with [`emplace!()`]:
+  /// This function is best paired with [`moveit!()`]:
   /// ```
-  /// # use moveit::{emplace, move_ref::PinExt as _};
+  /// # use core::pin::Pin;
+  /// # use moveit::{moveit, move_ref::PinExt as _};
   /// let ptr = Box::pin(5);
   /// moveit!(let mv = &move ptr);
   /// Pin::as_move(mv);
@@ -308,7 +309,7 @@ pub mod __macro {
   use super::*;
   use core::marker::PhantomData;
 
-  /// Type-inference helper for `move_ref!`.
+  /// Type-inference helper for `moveit!`.
   pub struct DerefPhantom<T>(PhantomData<*const T>);
   impl<T: DerefMove> DerefPhantom<T> {
     #[inline]
@@ -378,11 +379,12 @@ macro_rules! moveit {
   ($(;)?) => {};
 
   (@move $(($mut:tt))? $name:ident, $($ty:ty)?, $expr:expr) => {
-    let ph = $crate::move_ref::__macro::DerefPhantom::new(&$name);
-    let mut slot = $crate::move_ref::DerefMove::deinit($name);
+    let ptr = $expr;
+    let ph = $crate::move_ref::__macro::DerefPhantom::new(&ptr);
+    let mut slot = $crate::move_ref::DerefMove::deinit(ptr);
 
-    #[allow(unused_mut)]
-    let mut $name = ph.deref_move(&mut slot);
+    #[allow(unused_mut, unsafe_code, unused_unsafe)]
+    let $($mut)? $name = unsafe { ph.deref_move(&mut slot) };
   };
   (@put $(($mut:tt))? $name:ident, $($ty:ty)?, $expr:expr) => {
     $crate::slot!(slot);
