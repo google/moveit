@@ -14,65 +14,29 @@
 
 //! Support for the `alloc` crate, when available.
 
-use core::mem;
 use core::mem::MaybeUninit;
 use core::pin::Pin;
 
-use alloc::alloc::Layout;
 use alloc::boxed::Box;
 use alloc::rc::Rc;
 use alloc::sync::Arc;
 
 use crate::ctor::Emplace;
 use crate::ctor::TryCtor;
-use crate::unique::DerefMove;
-use crate::unique::MaybeUnique;
-use crate::unique::OuterDrop;
+use crate::move_ref::DerefMove;
+use crate::move_ref::MoveRef;
 
-unsafe impl<T> OuterDrop for Box<T> {
-  unsafe fn outer_drop(this: *mut Self) {
-    if mem::size_of::<T>() == 0 {
-      return;
-    }
+unsafe impl<T> DerefMove for Box<T> {
+  type Uninit = Box<MaybeUninit<T>>;
 
-    // SAFETY: `Box<T>` and `*mut T` are guaranteed to be interconvertible.
-    let ptr = this.cast::<*mut T>().read();
-    alloc::alloc::dealloc(ptr.cast::<u8>(), Layout::new::<T>());
+  #[inline]
+  fn deinit(self) -> Self::Uninit {
+    unsafe { Box::from_raw(Box::into_raw(self).cast::<MaybeUninit<T>>()) }
   }
-}
 
-unsafe impl<T> OuterDrop for Rc<T> {
-  unsafe fn outer_drop(this: *mut Self) {
-    // Unfortunately, we need to actually materialize the `Rc` to get the inner
-    // pointer out.
-    let ptr = Rc::as_ptr(&*this);
-    let _ = Rc::from_raw(ptr.cast::<MaybeUninit<T>>());
-  }
-}
-
-unsafe impl<T> OuterDrop for Arc<T> {
-  unsafe fn outer_drop(this: *mut Self) {
-    // Unfortunately, we need to actually materialize the `Arc` to get the inner
-    // pointer out.
-    let ptr = Arc::as_ptr(&*this);
-    let _ = Arc::from_raw(ptr.cast::<MaybeUninit<T>>());
-  }
-}
-
-unsafe impl<T> DerefMove for Box<T> {}
-
-unsafe impl<T> MaybeUnique for Rc<T> {
-  fn is_unique(&self) -> bool {
-    Rc::strong_count(self) == 1 && Rc::weak_count(self) == 1
-  }
-}
-
-unsafe impl<T> MaybeUnique for Arc<T> {
-  fn is_unique(&self) -> bool {
-    // SAFETY: There are no atomic subtleties here: if we observe
-    // this particular refcount, it is impossible for more weak pointers to
-    // materialize from the aether. The *_count() methods are SeqCst.
-    Arc::strong_count(self) == 1 && Arc::weak_count(self) == 1
+  #[inline]
+  unsafe fn deref_move(this: &mut Self::Uninit) -> MoveRef<Self::Target> {
+    MoveRef::new_unchecked(&mut *(&mut **this as *mut MaybeUninit<T> as *mut T))
   }
 }
 

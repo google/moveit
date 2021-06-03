@@ -17,7 +17,7 @@
 //! A [`Slot`] is uninitialized storage on the stack that can be manipulated
 //! explicitly. Notionally, a [`Slot<T>`] represents a `let x: T;` in some
 //! function's stack.
-//! 
+//!
 //! [`Slot`]s mut be created with the [`slot!()`] macro:
 //! ```
 //! # use moveit::{slot};
@@ -48,7 +48,7 @@
 //!
 //! [`Slot`]s provide a natural location for emplacing [`Ctor`]s on the stack.
 //! The [`emplace!()`] macro is intended to make this operation
-//! straight-forward. 
+//! straight-forward.
 
 use core::mem::MaybeUninit;
 use core::pin::Pin;
@@ -127,47 +127,6 @@ pub mod __macro {
   pub use core;
 }
 
-/// Create a [`Slot`] and immediately emplace a [`Ctor`] into it.
-///
-/// This macro is a convenience for calling [`slot!()`] followed by
-/// [`Slot::emplace()`]; the resulting type is a `Pin<MoveRef<T>>`.
-/// 
-/// ```
-/// # use moveit::{emplace, ctor, move_ref::MoveRef};
-/// # use core::pin::Pin;
-/// emplace!(let x = ctor::default::<i32>());
-/// emplace! {
-///   let y: Pin<MoveRef<i32>> = ctor::from(*x);
-///   let mut z = ctor::new(*y as u64);
-/// }
-/// # let _ = z;
-/// ```
-#[macro_export]
-#[cfg(doc)]
-macro_rules! emplace {
-  ($(let $(mut)? $name:ident $(: $ty:ty)? = $expr:expr);*) => { ... }
-}
-
-/// Shh...
-#[macro_export]
-#[cfg(not(doc))]
-macro_rules! emplace {
-  (let $name:ident $(: $ty:ty)? = $expr:expr $(; $($rest:tt)*)?) => {
-    $crate::emplace!(@emplace $name, $($ty)?, $expr);
-    $crate::emplace!($($($rest)*)?);
-  };
-  (let mut $name:ident $(: $ty:ty)? = $expr:expr $(; $($rest:tt)*)?) => {
-    $crate::emplace!(@emplace(mut) $name, $($ty)?, $expr);
-    $crate::emplace!($($($rest)*)?);
-  };
-  ($(;)?) => {};
-
-  (@emplace $(($mut:tt))? $name:ident, $($ty:ty)?, $expr:expr) => {
-    $crate::slot!($name);
-    let $($mut)? $name $(: $ty)? = $name.emplace($expr);
-  };
-}
-
 /// Constructs a new [`Slot`].
 ///
 /// Because [`Slot`]s need to own data on the stack, but that data cannot
@@ -182,20 +141,13 @@ macro_rules! emplace {
 /// This macro is especially useful for passing data into functions that want to
 /// emplace a value into the caller.
 #[macro_export]
-#[cfg(doc)]
-macro_rules! slot {
-  ($($name:ident $(: $ty:ty)?),*) => { ... }
-}
-
-/// Shh...
-#[macro_export]
-#[cfg(not(doc))]
 macro_rules! slot {
   ($($name:ident $(: $ty:ty)?),* $(,)*) => {$(
-    let mut uninit = $crate::stackbox::__macro::core::mem::MaybeUninit::<$
-      crate::slot!(@tyof $($ty)?)
+    let mut uninit = $crate::slot::__macro::core::mem::MaybeUninit::<
+      $crate::slot!(@tyof $($ty)?)
     >::uninit();
-    let $name = unsafe { $crate::stackbox::Slot::new_unchecked(&mut uninit) };
+    #[allow(unsafe_code, unused_unsafe)]
+    let $name = unsafe { $crate::slot::Slot::new_unchecked(&mut uninit) };
   )*};
   (@tyof) => {_};
   (@tyof $ty:ty) => {$ty};

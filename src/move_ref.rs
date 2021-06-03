@@ -16,28 +16,25 @@
 
 #![allow(missing_docs, unused)]
 
+use core::marker::Unpin;
+use core::mem;
 use core::mem::MaybeUninit;
 use core::ops::Deref;
 use core::ops::DerefMut;
 use core::pin::Pin;
 use core::ptr;
-use core::marker::Unpin;
 
 #[cfg(doc)]
-use alloc::{
-  boxed::Box,
-  rc::Rc,
-  sync::Arc,
-};
+use alloc::{boxed::Box, rc::Rc, sync::Arc};
 
 /// A library emulation of the theoretical `&move T` type.
-/// 
+///
 /// A `MoveRef<'a, T>` represents a unique reference to `T` for the lifetime
 /// `'a`. Unlike an `&mut T`, though, a `MoveRef<T>` is the *longest-lived* such
 /// reference, entitling it to run `T`'s destructor. In other words,
 /// `MoveRef<T>` owns its referent, but not its referent's storage.
 /// See the [module docs][`crate::move_ref`] for more information.
-/// 
+///
 /// The main mechanism for obtaining `MoveRef`s is the [`move_ref!()`] macro,
 /// which is analogous to a theoretical `&move expr` operator. This actuates
 /// a [`DerefMove`] implementation.
@@ -47,13 +44,13 @@ pub struct MoveRef<'a, T: ?Sized> {
 
 impl<'a, T: ?Sized> MoveRef<'a, T> {
   /// Create a new `MoveRef<T>` out of a mutable reference.
-  /// 
+  ///
   /// # Safety
-  /// 
+  ///
   /// `ptr` must satisfy the *longest-lived* criterion: after the return value
   /// goes out of scope, `ptr` must also be out-of-scope. Calling this function
   /// correctly is non-trivial, and should be left to [`move_ref!()`] instead.
-  /// 
+  ///
   /// In particular, if `ptr` outlives the returned `MoveRef`, it will point
   /// to dropped memory, which is UB.
   #[inline]
@@ -62,7 +59,7 @@ impl<'a, T: ?Sized> MoveRef<'a, T> {
   }
 
   /// Convert a `MoveRef<T>` into a `Pin<MoveRef<T>>`.
-  /// 
+  ///
   /// Because we own the referent, we are entitled to pin it permanently. See
   /// [`Box::into_pin()`] for a standard-library equivalent.
   #[inline]
@@ -109,9 +106,7 @@ unsafe impl<'a, T> DerefMove for MoveRef<'a, T> {
 
   #[inline]
   unsafe fn deref_move(this: &mut Self::Uninit) -> MoveRef<Self::Target> {
-    MoveRef::new_unchecked(
-      &mut *(this.ptr as *mut MaybeUninit<T> as *mut T),
-    )
+    MoveRef::new_unchecked(&mut *(this.ptr as *mut MaybeUninit<T> as *mut T))
   }
 }
 
@@ -165,22 +160,22 @@ impl<'a, T> From<MoveRef<'a, T>> for Pin<MoveRef<'a, T>> {
 ///   a reference-counted pointer need not run the destructor if other pointers
 ///   are still alive.
 /// - [`Pin<P>`] for `P: DerefMove` implements `DerefMove` only when
-///   `P::Target: Unpin`, since `DerefMove: DerefMut`. To 
+///   `P::Target: Unpin`, since `DerefMove: DerefMut`. To
 ///
 /// # Principle of Operation
-/// 
+///
 /// Unfortunately, because we don't yet have language support for `&move`, we
 /// need to break the implementation into two steps:
 /// - Inhibit the "inner destructor" of the pointee, so that the smart pointer
 ///   is now managing dumb bytes. This is usually accomplished by converting the
 ///   pointee type to [`MaybeUninit<T>`].
 /// - Extract a [`MoveRef`] out of the "deinitialized" pointer.
-/// 
+///
 /// The first part is used to root the storage to the stack in such a way that
 /// the putative `MoveRef` can run the destructor without a double-free
 /// occurring. The second part needs to be separate, since the `MoveRef`
 /// derives its lifetime from this "rooted" storage.
-/// 
+///
 /// The correct way to perform a `DerefMove` operation is thus:
 /// ```
 /// # use moveit::{move_ref::{DerefMove, MoveRef}, slot::Slot};
@@ -219,12 +214,12 @@ impl<'a, T> From<MoveRef<'a, T>> for Pin<MoveRef<'a, T>> {
 ///   }
 /// }
 /// ```
-/// 
+///
 /// This criterion is key to the implementation of `deinit`, which will usually
 /// transmute the pointer in some manner.
 pub unsafe trait DerefMove: DerefMut + Sized {
   /// An "uninitialized" version of `Self`.
-  /// 
+  ///
   /// This is usually `Self` but with `Target` changed to
   /// `MaybeUninit<Self::Target>`.
   type Uninit: Sized;
@@ -234,13 +229,15 @@ pub unsafe trait DerefMove: DerefMut + Sized {
   fn deinit(self) -> Self::Uninit;
 
   /// Moves out of `this`, producing a [`MoveRef`] that owns its contents.
-  /// 
+  ///
+  /// Do not call this function directly; use [`moveit!()`] instead.
+  ///
   /// # Safety
-  /// 
+  ///
   /// This function may only be called on a value obtained from
   /// [`DerefMove::deinit()`], and it may only be called *once* on it. Failure
   /// to do so may result in double-frees.
-  /// 
+  ///
   /// In other words, every call to `deref_move()` must be matched up to exactly
   /// one call to `deinit()`.
   unsafe fn deref_move(this: &mut Self::Uninit) -> MoveRef<Self::Target>;
@@ -255,19 +252,17 @@ where
   type Uninit = Pin<P::Uninit>;
 
   fn deinit(self) -> Self::Uninit {
-    unsafe {
-      Pin::new_unchecked(Pin::into_inner_unchecked(self).deinit())
-    }
+    unsafe { Pin::new_unchecked(Pin::into_inner_unchecked(self).deinit()) }
   }
 
   /// Moves out of `this`, producing a [`MoveRef`] that owns its contents.
-  /// 
+  ///
   /// # Safety
-  /// 
+  ///
   /// This function may only be called on a value obtained from
   /// [`DerefMove::deinit()`], and it may only be called *once* on it. Failure
   /// to do so may result in double-frees.
-  /// 
+  ///
   /// In other words, every call to `deref_move()` must be matched up to exactly
   /// one call to `deinit()`.
   unsafe fn deref_move(this: &mut Self::Uninit) -> MoveRef<Self::Target> {
@@ -275,20 +270,43 @@ where
   }
 }
 
+/// Extensions for using `DerefMove` types with `PinExt`.
 pub trait PinExt<P: DerefMove> {
+  /// Gets a pinned `MoveRef` out of the pinned pointer.
+  ///
+  /// This function is best paired with [`emplace!()`]:
+  /// ```
+  /// # use moveit::{emplace, move_ref::PinExt as _};
+  /// let ptr = Box::pin(5);
+  /// moveit!(let mv = &move ptr);
+  /// Pin::as_move(mv);
+  /// ```
+  /// Taking a trip through [`moveit!()`] is unavoidable due to the nature of
+  /// `MoveRef`.
+  ///
+  /// Compare with [`Pin::as_mut()`].
   fn as_move(this: MoveRef<Pin<P>>) -> Pin<MoveRef<P::Target>>;
 }
 
 impl<P: DerefMove> PinExt<P> for Pin<P> {
-  fn as_move(this: MoveRef<Pin<P>>) -> Pin<MoveRef<P::Target>> {
-    todo!()
+  fn as_move(mut this: MoveRef<Pin<P>>) -> Pin<MoveRef<P::Target>> {
+    unsafe {
+      let inner = Pin::get_unchecked_mut(Pin::as_mut(&mut *this));
+      // Extend the lifetime of `inner` to unlink it from `this`. Because we
+      // own `this`'s pointee, this is safe.
+      let inner = mem::transmute::<&mut P::Target, &mut P::Target>(inner);
+      // This may be an aliasing violation because `inner` and `this` briefly
+      // alias; this may be dealt with by passing `inner` through a raw pointer.
+      mem::forget(this);
+      MoveRef::into_pin(MoveRef::new_unchecked(inner))
+    }
   }
 }
 
 #[doc(hidden)]
 pub mod __macro {
-  use core::marker::PhantomData;
   use super::*;
+  use core::marker::PhantomData;
 
   /// Type-inference helper for `move_ref!`.
   pub struct DerefPhantom<T>(PhantomData<*const T>);
@@ -305,28 +323,73 @@ pub mod __macro {
   }
 }
 
-/// Performs a move-dereference operation.
-/// 
-/// If [`MoveRef`] is a library implementation of the `&move T`, this macro is
-/// the equivalent of the `&move expr` operator.
-/// 
-/// Unfortunately, this macro cannot be an expression, since it must introduce
-/// `let` bindings in the scope of `$name`. Instead, it takes the name of an
-/// existing binding and shadows it with the resulting [`MoveRef`]. For
-/// example:
-/// 
+/// Performs an emplacement operation.
+///
+/// This macro allows for three exotic types of `let` bindings:
 /// ```
-/// # use moveit::move_ref;
-/// let p = Box::new(5);
-/// move_ref!(p); // `p` now has type `MoveRef<'_, i32>`. 
+/// # use moveit::{moveit, ctor, move_ref::MoveRef};
+/// # use core::pin::Pin;
+/// let bx = Box::new(42);
+///
+/// moveit! {
+///   // Use a `Ctor` to construct a new value in place on the stack. This
+///   // produces a value of type `Pin<MoveRef<_>>`.
+///   let x = new ctor::default::<i32>();
+///   
+///   // Move out of an existing `DerefMove` type, such as a `Box`. This has
+///   // type `MoveRef<_>`, but can be pinned using `MoveRef::into_pin()`.
+///   let y = &move *bx;
+///   
+///   // Create a `MoveRef` of an existing type on the stack. This also has
+///   // type `MoveRef<_>`.
+///   let z = &move y;
+/// }
 /// ```
+///
+/// All three `lets`, including in-place construction, pin to the stack.
+/// Consider using something like [`Box::emplace()`] to perform construction on
+/// the heap.
 #[macro_export]
-macro_rules! move_ref {
-  ($($name:ident),* $(,)?) => {$(
+macro_rules! moveit {
+  (let $name:ident $(: $ty:ty)? = &move *$expr:expr $(; $($rest:tt)*)?) => {
+    $crate::moveit!(@move $name, $($ty)?, $expr);
+    $crate::moveit!($($($rest)*)?);
+  };
+  (let mut $name:ident $(: $ty:ty)? = &move *$expr:expr $(; $($rest:tt)*)?) => {
+    $crate::moveit!(@move(mut) $name, $($ty)?, $expr);
+    $crate::moveit!($($($rest)*)?);
+  };
+  (let $name:ident $(: $ty:ty)? = &move $expr:expr $(; $($rest:tt)*)?) => {
+    $crate::moveit!(@put $name, $($ty)?, $expr);
+    $crate::moveit!($($($rest)*)?);
+  };
+  (let mut $name:ident $(: $ty:ty)? = &move $expr:expr $(; $($rest:tt)*)?) => {
+    $crate::emplace!(@put(mut) $name, $($ty)?, $expr);
+    $crate::emplace!($($($rest)*)?);
+  };
+  (let $name:ident $(: $ty:ty)? = new $expr:expr $(; $($rest:tt)*)?) => {
+    $crate::moveit!(@emplace $name, $($ty)?, $expr);
+    $crate::moveit!($($($rest)*)?);
+  };
+  (let mut $name:ident $(: $ty:ty)? = new $expr:expr $(; $($rest:tt)*)?) => {
+    $crate::moveit!(@emplace(mut) $name, $($ty)?, $expr);
+    $crate::moveit!($($($rest)*)?);
+  };
+  ($(;)?) => {};
+
+  (@move $(($mut:tt))? $name:ident, $($ty:ty)?, $expr:expr) => {
     let ph = $crate::move_ref::__macro::DerefPhantom::new(&$name);
-    let mut $name = $crate::move_ref::DerefMove::deinit($name);
+    let mut slot = $crate::move_ref::DerefMove::deinit($name);
 
     #[allow(unused_mut)]
-    let mut $name = ph.deref_move(&mut $name);
-  )*};
+    let mut $name = ph.deref_move(&mut slot);
+  };
+  (@put $(($mut:tt))? $name:ident, $($ty:ty)?, $expr:expr) => {
+    $crate::slot!(slot);
+    let $($mut)? $name $(: $ty)? = slot.put($expr);
+  };
+  (@emplace $(($mut:tt))? $name:ident, $($ty:ty)?, $expr:expr) => {
+    $crate::slot!(slot);
+    let $($mut)? $name $(: $ty)? = slot.emplace($expr);
+  };
 }
