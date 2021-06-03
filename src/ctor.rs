@@ -86,9 +86,9 @@ where
 /// `T`.
 ///
 /// ```
-/// # use moveit::{emplace, ctor};
-/// emplace! {
-///   let x = ctor::from_fn(|| 21 * 2);
+/// # use moveit::{moveit, ctor};
+/// moveit! {
+///   let x = new ctor::from_fn(|| 21 * 2);
 /// }
 /// assert_eq!(*x, 42);
 /// ```
@@ -104,9 +104,9 @@ where
 ///
 /// ```
 /// # use std::pin::Pin;
-/// # use moveit::{emplace, ctor, StackBox};
-/// emplace! {
-///   let x: Pin<StackBox<String>> = ctor::from("foo");
+/// # use moveit::{moveit, ctor, MoveRef};
+/// moveit! {
+///   let x: Pin<MoveRef<String>> = new ctor::from("foo");
 /// }
 /// assert_eq!(*x, "foo");
 /// ```
@@ -119,9 +119,9 @@ pub fn from<T: From<U>, U>(val: U) -> impl Ctor<Output = T> {
 ///
 /// ```
 /// # use std::pin::Pin;
-/// # use moveit::{emplace, ctor, StackBox};
-/// emplace! {
-///   let x = ctor::new(42);
+/// # use moveit::{moveit, ctor};
+/// moveit! {
+///   let x = new ctor::new(42);
 /// }
 /// assert_eq!(*x, 42);
 /// ```
@@ -134,9 +134,9 @@ pub fn new<T>(val: T) -> impl Ctor<Output = T> {
 ///
 /// ```
 /// # use std::pin::Pin;
-/// # use moveit::{emplace, ctor, StackBox};
-/// emplace! {
-///   let x = ctor::default::<i32>();
+/// # use moveit::{moveit, ctor};
+/// moveit! {
+///   let x = new ctor::default::<i32>();
 /// }
 /// assert_eq!(*x, 0);
 /// ```

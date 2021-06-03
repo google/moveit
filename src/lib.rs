@@ -69,7 +69,7 @@
 //!
 //! use moveit::ctor;
 //! use moveit::ctor::Ctor;
-//! use moveit::emplace;
+//! use moveit::moveit;
 //!
 //! // This is a self-referential struct because the slice field points to the
 //! // data field. We cannot inform the compiler about that with a normal
@@ -103,8 +103,8 @@
 //! }
 //!
 //! // The constructor can't be used directly, and needs to be emplaced.
-//! emplace! {
-//!   let unmoved = Unmovable::new("hello".to_string());
+//! moveit! {
+//!   let unmoved = new Unmovable::new("hello".to_string());
 //! }
 //! // The pointer should point to the correct location,
 //! // so long as the struct hasn't moved.
@@ -157,11 +157,9 @@ pub mod slot;
 
 pub mod ctor;
 
-#[cfg(doc)]
-use unique::DerefMove;
-
 // #[doc(inline)]
 pub use crate::{
   ctor::{CopyCtor, Ctor, Emplace, MoveCtor, TryCtor},
+  move_ref::{DerefMove, MoveRef},
   slot::Slot,
 };
