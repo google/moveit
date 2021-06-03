@@ -156,8 +156,6 @@ pub mod move_ref;
 pub mod slot;
 
 pub mod ctor;
-//pub mod stackbox;
-pub mod unique;
 
 #[cfg(doc)]
 use unique::DerefMove;
