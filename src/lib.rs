@@ -86,17 +86,15 @@
 //!   // Defer construction until the final location is known.
 //!   fn new(data: String) -> impl New<Output = Self> {
 //!     unsafe {
-//!       new::from_placement_fn(|dest| {
-//!         let mut inner = Pin::into_inner_unchecked(dest);
-//!         *inner = MaybeUninit::new( Unmovable {
-//!             data,
-//!             // We only create the pointer once the data is in place
-//!             // otherwise it will have already moved before we even started.
-//!             slice: NonNull::dangling(),
-//!             _pin: PhantomPinned,
+//!       new::by_raw(|this| {
+//!         let this = this.get_unchecked_mut().write(Unmovable {
+//!           data,
+//!           // We only create the pointer once the data is in place
+//!           // otherwise it will have already moved before we even started.
+//!           slice: NonNull::dangling(),
+//!           _pin: PhantomPinned,
 //!         });
-//!         let mut inner = &mut *inner.as_mut_ptr();
-//!         inner.slice = NonNull::from(&inner.data);
+//!         this.slice = NonNull::from(&this.data);
 //!       })
 //!     }
 //!   }

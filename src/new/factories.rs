@@ -31,7 +31,7 @@ use crate::new::TryNew;
 /// `f` must respect the safety requirements of [`New`], since it is used
 /// as an implementation basis.
 #[inline]
-pub unsafe fn from_placement_fn<T, F>(f: F) -> impl New<Output = T>
+pub unsafe fn by_raw<T, F>(f: F) -> impl New<Output = T>
 where
   F: FnOnce(Pin<&mut MaybeUninit<T>>),
 {
@@ -57,25 +57,25 @@ where
   }
 }
 
-/// Returns a `New` that uses the provided closure for constructing a
+/// Returns a [`New`] that uses the provided closure for constructing a
 /// `T`.
 ///
 /// ```
 /// # use moveit::{moveit, new};
 /// moveit! {
-///   let x = new::from_fn(|| 21 * 2);
+///   let x = new::by(|| 21 * 2);
 /// }
 /// assert_eq!(*x, 42);
 /// ```
 #[inline]
-pub fn from_fn<T, F>(f: F) -> impl New<Output = T>
+pub fn by<T, F>(f: F) -> impl New<Output = T>
 where
   F: FnOnce() -> T,
 {
-  unsafe { from_placement_fn(|mut dest| dest.set(MaybeUninit::new(f()))) }
+  unsafe { by_raw(|mut dest| dest.set(MaybeUninit::new(f()))) }
 }
 
-/// Returns a `New` that uses a `From` implementation to generate a `T`.
+/// Returns a [`New`] that uses a [`From`] implementation to generate a `T`.
 ///
 /// ```
 /// # use std::pin::Pin;
@@ -87,10 +87,10 @@ where
 /// ```
 #[inline]
 pub fn from<T: From<U>, U>(val: U) -> impl New<Output = T> {
-  from_fn(|| val.into())
+  by(|| val.into())
 }
 
-/// Returns a `New` that simply returns the given value.
+/// Returns a [`New`] that simply returns the given value.
 ///
 /// ```
 /// # use std::pin::Pin;
@@ -100,12 +100,14 @@ pub fn from<T: From<U>, U>(val: U) -> impl New<Output = T> {
 /// }
 /// assert_eq!(*x, 42);
 /// ```
+/// 
+/// In general, you will almost always want [`from()`].
 #[inline]
 pub fn of<T>(val: T) -> impl New<Output = T> {
-  from_fn(|| val)
+  by(|| val)
 }
 
-/// Returns a `New` that uses a `Default` implementation to generate a `T`.
+/// Returns a [`New`] calls [`Default`] to generate a `T`.
 ///
 /// ```
 /// # use std::pin::Pin;
@@ -117,10 +119,10 @@ pub fn of<T>(val: T) -> impl New<Output = T> {
 /// ```
 #[inline]
 pub fn default<T: Default>() -> impl New<Output = T> {
-  from_fn(Default::default)
+  by(Default::default)
 }
 
-/// Returns a `TryNew` that uses the provided closure for construction.
+/// Returns a [`TryNew`] that uses the provided closure for construction.
 ///
 /// This is the most primitive [`TryNew`]-creation function, and is
 /// almost-always preferred over implementing [`TryNew`] directly.
@@ -130,7 +132,7 @@ pub fn default<T: Default>() -> impl New<Output = T> {
 /// `f` must respect the safety requirements of [`TryNew`], since it is used
 /// as an implementation basis.
 #[inline]
-pub unsafe fn from_placement_try_fn<T, E, F>(
+pub unsafe fn try_by_raw<T, E, F>(
   f: F,
 ) -> impl TryNew<Output = T, Error = E>
 where
@@ -162,22 +164,22 @@ where
   }
 }
 
-/// Returns a `TryNew` that uses the provided closure for constructing a
+/// Returns a [`TryNew`] that uses the provided closure for constructing a
 /// `T`.
 #[inline]
-pub fn from_try_fn<T, E, F>(f: F) -> impl TryNew<Output = T, Error = E>
+pub fn try_by<T, E, F>(f: F) -> impl TryNew<Output = T, Error = E>
 where
   F: FnOnce() -> Result<T, E>,
 {
   unsafe {
-    from_placement_try_fn(|mut dest| Ok(dest.set(MaybeUninit::new(f()?))))
+    try_by_raw(|mut dest| Ok(dest.set(MaybeUninit::new(f()?))))
   }
 }
 
-/// Returns a `TryNew` that uses a `TryFrom` implementation to generate a `T`.
+/// Returns a [`TryNew`] that uses a `TryFrom` implementation to generate a `T`.
 #[inline]
 pub fn try_from<T: TryFrom<U>, U>(
   val: U,
 ) -> impl TryNew<Output = T, Error = T::Error> {
-  from_try_fn(|| val.try_into())
+  try_by(|| val.try_into())
 }
