@@ -31,17 +31,17 @@
 //! that the address of `*this` will not change; all C++ objects are effectively
 //! pinned and new objects must be constructed using copy or move constructors.
 //!
-//! The [`Ctor`], [`CopyCtor`], and [`MoveCtor`] traits bring these concepts
-//! into Rust. A [`Ctor`] is like a nilary [`FnOnce`], except that instead of
+//! The [`New`], [`CopyNew`], and [`MoveNew`] traits bring these concepts
+//! into Rust. A [`New`] is like a nilary [`FnOnce`], except that instead of
 //! returning its result, it writes it to a `Pin<&mut MaybeUninit<T>>`, which is
 //! in the "memory may be repurposed" state described in the
 //! [`Pin` documentation] (i.e., either it is freshly allocated or the
-//! destructor was recently run). This allows a [`Ctor`] to rely on the
+//! destructor was recently run). This allows a [`New`] to rely on the
 //! pointer's address remaining stable, much like `*this` in C++.
 //!
-//! Types that implement [`CopyCtor`] may be *copy-constructed*: given any
-//! pointer to `T: CopyCtor`, we can generate a constructor that constructs a
-//! new, identical `T` at a designated location. [`MoveCtor`] types may be
+//! Types that implement [`CopyNew`] may be *copy-constructed*: given any
+//! pointer to `T: CopyNew`, we can generate a constructor that constructs a
+//! new, identical `T` at a designated location. [`MoveNew`] types may be
 //! *move-constructed*: given an *owning* pointer (see [`DerefMove`]) to `T`,
 //! we can generate a similar constructor, except that it also destroys the
 //! `T` and the owning pointer's storage.
@@ -57,7 +57,7 @@
 //!
 //! # Constructors
 //!
-//! A constructor is any type that implements [`Ctor`]. Constructors are like
+//! A constructor is any type that implements [`New`]. Constructors are like
 //! closures that have guaranteed RVO, which can be used to construct a
 //! self-referential type in-place. To use the example from the `Pin<T>` docs:
 //! ```
@@ -67,8 +67,8 @@
 //! use std::ptr;
 //! use std::ptr::NonNull;
 //!
-//! use moveit::ctor;
-//! use moveit::ctor::Ctor;
+//! use moveit::new;
+//! use moveit::new::New;
 //! use moveit::moveit;
 //!
 //! // This is a self-referential struct because the slice field points to the
@@ -84,9 +84,9 @@
 //!
 //! impl Unmovable {
 //!   // Defer construction until the final location is known.
-//!   fn new(data: String) -> impl Ctor<Output = Self> {
+//!   fn new(data: String) -> impl New<Output = Self> {
 //!     unsafe {
-//!       ctor::from_placement_fn(|dest| {
+//!       new::from_placement_fn(|dest| {
 //!         let mut inner = Pin::into_inner_unchecked(dest);
 //!         *inner = MaybeUninit::new( Unmovable {
 //!             data,
@@ -104,7 +104,7 @@
 //!
 //! // The constructor can't be used directly, and needs to be emplaced.
 //! moveit! {
-//!   let unmoved = new Unmovable::new("hello".to_string());
+//!   let unmoved = Unmovable::new("hello".to_string());
 //! }
 //! // The pointer should point to the correct location,
 //! // so long as the struct hasn't moved.
@@ -117,23 +117,20 @@
 //! // let mut new_unmoved = Unmovable::new("world".to_string());
 //! // std::mem::swap(&mut *still_unmoved, &mut *new_unmoved);
 //!
-//! // However, we can implement `MoveCtor` to allow it to be "moved" again.
+//! // However, we can implement `MoveNew` to allow it to be "moved" again.
 //! ```
 //!
-//! The [`ctor`] module provides various helpers for making constructors. As a
+//! The [`new`] module provides various helpers for making constructors. As a
 //! rule, functions which, in Rust, would normally construct and return a value
-//! should return `impl Ctor` instead. This is analogous to have `async fn`s and
+//! should return `impl New` instead. This is analogous to have `async fn`s and
 //! `.iter()` functions work.
-//!
-//! In the future, we may provide a `#[ctor]` macro for streamlining [`Ctor`]
-//! definition.
 //!
 //! # Emplacement
 //!
-//! The example above makes use of the [`emplace!()`] macro, one of many ways to
+//! The example above makes use of the [`moveit!()`] macro, one of many ways to
 //! turn a constructor into a value. `moveit` gives you two choices for running
 //! a constructor:
-//! - On the stack, using the [`StackBox`] type (this is what [`emplace!()`]
+//! - On the stack, using the [`MoveRef`] type (this is what [`moveit!()`]
 //!   generates).
 //! - On the heap, using the extension methods from the [`Emplace`] trait.
 //!
@@ -152,14 +149,12 @@ extern crate alloc;
 mod alloc_support;
 
 pub mod move_ref;
-
 pub mod slot;
-
-pub mod ctor;
+pub mod new;
 
 // #[doc(inline)]
 pub use crate::{
-  ctor::{CopyCtor, Ctor, Emplace, MoveCtor, TryCtor},
+  new::{CopyNew, New, Emplace, MoveNew, TryNew},
   move_ref::{DerefMove, MoveRef},
   slot::Slot,
 };

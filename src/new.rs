@@ -34,10 +34,10 @@ use alloc::{boxed::Box, rc::Rc, sync::Arc};
 ///
 /// # Safety
 ///
-/// [`Ctor::ctor()`] must leave its destination argument in a valid, initialized
+/// [`New::new()`] must leave its destination argument in a valid, initialized
 /// state.
-#[must_use = "`Ctor`s do nothing until emplaced into storage"]
-pub unsafe trait Ctor {
+#[must_use = "`New`s do nothing until emplaced into storage"]
+pub unsafe trait New {
   /// The type to construct.
   type Output;
   /// Construct a new value using the arguments stored in `self`.
@@ -47,115 +47,115 @@ pub unsafe trait Ctor {
   /// `dest` must be freshly-created memory; this function must not
   /// be used to mutate a previously-pinned pointer that has had `self: Pin`
   /// functions called on it.
-  unsafe fn ctor(self, dest: Pin<&mut MaybeUninit<Self::Output>>);
+  unsafe fn new(self, dest: Pin<&mut MaybeUninit<Self::Output>>);
 }
 
-/// Returns a new `Ctor` that uses the provided closure for construction.
+/// Returns a new `New` that uses the provided closure for construction.
 ///
 /// # Safety
 ///
-/// `f` must respect the safety requirements of [`Ctor`], since it is used
+/// `f` must respect the safety requirements of [`New`], since it is used
 /// as an implementation basis.
 #[inline]
-pub unsafe fn from_placement_fn<T, F>(f: F) -> impl Ctor<Output = T>
+pub unsafe fn from_placement_fn<T, F>(f: F) -> impl New<Output = T>
 where
   F: FnOnce(Pin<&mut MaybeUninit<T>>),
 {
-  struct FnCtor<F, T> {
+  struct FnNew<F, T> {
     f: F,
     _ph: PhantomData<fn(T)>,
   }
-  unsafe impl<F, T> Ctor for FnCtor<F, T>
+  unsafe impl<F, T> New for FnNew<F, T>
   where
     F: FnOnce(Pin<&mut MaybeUninit<T>>),
   {
     type Output = T;
     #[inline]
-    unsafe fn ctor(self, dest: Pin<&mut MaybeUninit<Self::Output>>) {
+    unsafe fn new(self, dest: Pin<&mut MaybeUninit<Self::Output>>) {
       (self.f)(dest)
     }
   }
 
-  FnCtor::<F, T> {
+  FnNew::<F, T> {
     f,
     _ph: PhantomData,
   }
 }
 
-/// Returns a new `Ctor` that uses the provided closure for constructing a
+/// Returns a new `New` that uses the provided closure for constructing a
 /// `T`.
 ///
 /// ```
-/// # use moveit::{moveit, ctor};
+/// # use moveit::{moveit, new};
 /// moveit! {
-///   let x = new ctor::from_fn(|| 21 * 2);
+///   let x = new::from_fn(|| 21 * 2);
 /// }
 /// assert_eq!(*x, 42);
 /// ```
 #[inline]
-pub fn from_fn<T, F>(f: F) -> impl Ctor<Output = T>
+pub fn from_fn<T, F>(f: F) -> impl New<Output = T>
 where
   F: FnOnce() -> T,
 {
   unsafe { from_placement_fn(|mut dest| dest.set(MaybeUninit::new(f()))) }
 }
 
-/// Returns a new `Ctor` that uses a `From` implementation to generate a `T`.
+/// Returns a new `New` that uses a `From` implementation to generate a `T`.
 ///
 /// ```
 /// # use std::pin::Pin;
-/// # use moveit::{moveit, ctor, MoveRef};
+/// # use moveit::{moveit, new, MoveRef};
 /// moveit! {
-///   let x: Pin<MoveRef<String>> = new ctor::from("foo");
+///   let x: Pin<MoveRef<String>> = new::from("foo");
 /// }
 /// assert_eq!(*x, "foo");
 /// ```
 #[inline]
-pub fn from<T: From<U>, U>(val: U) -> impl Ctor<Output = T> {
+pub fn from<T: From<U>, U>(val: U) -> impl New<Output = T> {
   from_fn(|| val.into())
 }
 
-/// Returns a new `Ctor` that simply returns the given value.
+/// Returns a new `New` that simply returns the given value.
 ///
 /// ```
 /// # use std::pin::Pin;
-/// # use moveit::{moveit, ctor};
+/// # use moveit::{moveit, new};
 /// moveit! {
-///   let x = new ctor::new(42);
+///   let x = new::new(42);
 /// }
 /// assert_eq!(*x, 42);
 /// ```
 #[inline]
-pub fn new<T>(val: T) -> impl Ctor<Output = T> {
+pub fn new<T>(val: T) -> impl New<Output = T> {
   from_fn(|| val)
 }
 
-/// Returns a new `Ctor` that uses a `Default` implementation to generate a `T`.
+/// Returns a new `New` that uses a `Default` implementation to generate a `T`.
 ///
 /// ```
 /// # use std::pin::Pin;
-/// # use moveit::{moveit, ctor};
+/// # use moveit::{moveit, new};
 /// moveit! {
-///   let x = new ctor::default::<i32>();
+///   let x = new::default::<i32>();
 /// }
 /// assert_eq!(*x, 0);
 /// ```
 #[inline]
-pub fn default<T: Default>() -> impl Ctor<Output = T> {
+pub fn default<T: Default>() -> impl New<Output = T> {
   from_fn(Default::default)
 }
 
 /// An in-place constructor for a particular type, which can potentially fail.
 ///
-/// Emplacing a `TryCtor` may allocate even when construction fails; prefer to
-/// use `Result<impl Ctor>` when possible, instead.
+/// Emplacing a `TryNew` may allocate even when construction fails; prefer to
+/// use `Result<impl New>` when possible, instead.
 ///
 /// # Safety
 ///
-/// [`TryCtor::try_ctor()`] must leave its destination argument in a valid,
+/// [`TryNew::try_new()`] must leave its destination argument in a valid,
 /// initialized state when it returns `Ok`.
-#[must_use = "`Ctor`s do nothing until emplaced into storage"]
-pub unsafe trait TryCtor {
+#[must_use = "`New`s do nothing until emplaced into storage"]
+pub unsafe trait TryNew {
   /// The type to construct.
   type Output;
   /// The error the construction operation may return.
@@ -167,49 +167,49 @@ pub unsafe trait TryCtor {
   /// `dest` must be freshly-created memory; this function must not
   /// be used to mutate a previously-pinned pointer that has had `self: Pin`
   /// functions called on it.
-  unsafe fn try_ctor(
+  unsafe fn try_new(
     self,
     dest: Pin<&mut MaybeUninit<Self::Output>>,
   ) -> Result<(), Self::Error>;
 }
 
-unsafe impl<C: Ctor> TryCtor for C {
-  type Output = C::Output;
+unsafe impl<N: New> TryNew for N {
+  type Output = N::Output;
   type Error = Infallible;
-  unsafe fn try_ctor(
+  unsafe fn try_new(
     self,
     dest: Pin<&mut MaybeUninit<Self::Output>>,
   ) -> Result<(), Self::Error> {
-    self.ctor(dest);
+    self.new(dest);
     Ok(())
   }
 }
 
-/// Returns a new `TryCtor` that uses the provided closure for construction.
+/// Returns a new `TryNew` that uses the provided closure for construction.
 ///
 /// # Safety
 ///
-/// `f` must respect the safety requirements of [`TryCtor`], since it is used
+/// `f` must respect the safety requirements of [`TryNew`], since it is used
 /// as an implementation basis.
 #[inline]
 pub unsafe fn from_placement_try_fn<T, E, F>(
   f: F,
-) -> impl TryCtor<Output = T, Error = E>
+) -> impl TryNew<Output = T, Error = E>
 where
   F: FnOnce(Pin<&mut MaybeUninit<T>>) -> Result<(), E>,
 {
-  struct FnCtor<F, T, E> {
+  struct FnNew<F, T, E> {
     f: F,
     _ph: PhantomData<fn(T) -> E>,
   }
-  unsafe impl<F, T, E> TryCtor for FnCtor<F, T, E>
+  unsafe impl<F, T, E> TryNew for FnNew<F, T, E>
   where
     F: FnOnce(Pin<&mut MaybeUninit<T>>) -> Result<(), E>,
   {
     type Output = T;
     type Error = E;
     #[inline]
-    unsafe fn try_ctor(
+    unsafe fn try_new(
       self,
       dest: Pin<&mut MaybeUninit<Self::Output>>,
     ) -> Result<(), E> {
@@ -217,16 +217,16 @@ where
     }
   }
 
-  FnCtor::<F, T, E> {
+  FnNew::<F, T, E> {
     f,
     _ph: PhantomData,
   }
 }
 
-/// Returns a new `Ctor` that uses the provided closure for constructing a
+/// Returns a new `New` that uses the provided closure for constructing a
 /// `T`.
 #[inline]
-pub fn from_try_fn<T, E, F>(f: F) -> impl TryCtor<Output = T, Error = E>
+pub fn from_try_fn<T, E, F>(f: F) -> impl TryNew<Output = T, Error = E>
 where
   F: FnOnce() -> Result<T, E>,
 {
@@ -235,31 +235,31 @@ where
   }
 }
 
-/// Returns a new `Ctor` that uses a `From` implementation to generate a `T`.
+/// Returns a new `New` that uses a `From` implementation to generate a `T`.
 #[inline]
 pub fn try_from<T: TryFrom<U>, U>(
   val: U,
-) -> impl TryCtor<Output = T, Error = T::Error> {
+) -> impl TryNew<Output = T, Error = T::Error> {
   from_try_fn(|| val.try_into())
 }
 
-/// A pointer type with a stable address that a [`Ctor`] may be used to
+/// A pointer type with a stable address that a [`New`] may be used to
 /// construct a value with.
 ///
 /// This enables an `emplace()` method for [`Box`], [`Rc`], and [`Arc`]. Users
 /// are encouraged to implement this function for their own heap-allocated smart
 /// pointers.
 pub trait Emplace<T>: Sized {
-  /// Constructs a new smart pointer and emplaces `c` into its storage.
-  fn emplace<C: Ctor<Output = T>>(c: C) -> Pin<Self> {
-    match Self::try_emplace(c) {
+  /// Constructs a new smart pointer and emplaces `n` into its storage.
+  fn emplace<N: New<Output = T>>(n: N) -> Pin<Self> {
+    match Self::try_emplace(n) {
       Ok(x) => x,
       Err(e) => match e {},
     }
   }
 
-  /// Constructs a new smart pointer and tries to emplace `c` into its storage.
-  fn try_emplace<C: TryCtor<Output = T>>(c: C) -> Result<Pin<Self>, C::Error>;
+  /// Constructs a new smart pointer and tries to emplace `n` into its storage.
+  fn try_emplace<N: TryNew<Output = T>>(n: N) -> Result<Pin<Self>, N::Error>;
 }
 
 /// A move constructible type: a destination-aware `Clone` that destroys the
@@ -267,36 +267,36 @@ pub trait Emplace<T>: Sized {
 ///
 /// # Safety
 ///
-/// After [`MoveCtor::move_ctor()`] is called:
+/// After [`MoveNew::move_new()`] is called:
 /// - `src` should be treated as having been destroyed.
 /// - `dest` must have been initialized.
-pub unsafe trait MoveCtor: Sized {
+pub unsafe trait MoveNew: Sized {
   /// Move-construct `src` into `dest`, effectively re-pinning it at a new
   /// location.
   ///
   /// # Safety
   ///
-  /// The same safety requirements of [`Ctor::ctor()`] apply, but, in addition,
+  /// The same safety requirements of [`New::new()`] apply, but, in addition,
   /// `*src` must not be used after this function is called, because it has
   /// effectively been destroyed.
-  unsafe fn move_ctor(
+  unsafe fn move_new(
     src: Pin<MoveRef<Self>>,
     dest: Pin<&mut MaybeUninit<Self>>,
   );
 }
 
-/// Returns a new `Ctor` that uses a move constructor.
+/// Returns a new `New` that uses a move constructor.
 #[inline]
-pub fn mov<P>(ptr: impl Into<Pin<P>>) -> impl Ctor<Output = P::Target>
+pub fn mov<P>(ptr: impl Into<Pin<P>>) -> impl New<Output = P::Target>
 where
   P: DerefMove,
-  P::Target: MoveCtor,
+  P::Target: MoveNew,
 {
   let ptr = ptr.into();
   unsafe {
     from_placement_fn(move |dest| {
       crate::moveit!(let ptr = &move ptr);
-      MoveCtor::move_ctor(Pin::as_move(ptr), dest);
+      MoveNew::move_new(Pin::as_move(ptr), dest);
     })
   }
 }
@@ -305,28 +305,28 @@ where
 ///
 /// # Safety
 ///
-/// After [`CopyCtor::copy_ctor()`] is called:
+/// After [`CopyNew::copy_new()`] is called:
 /// - `dest` must have been initialized.
-pub unsafe trait CopyCtor: Sized {
+pub unsafe trait CopyNew: Sized {
   /// Copy-construct `src` into `dest`, effectively re-pinning it at a new
   /// location.
   ///
   /// # Safety
   ///
-  /// The same safety requirements of [`Ctor::ctor()`] apply.
-  unsafe fn copy_ctor(src: &Self, dest: Pin<&mut MaybeUninit<Self>>);
+  /// The same safety requirements of [`New::new()`] apply.
+  unsafe fn copy_new(src: &Self, dest: Pin<&mut MaybeUninit<Self>>);
 }
 
-/// Returns a new `Ctor` that uses a copy constructor.
+/// Returns a new `New` that uses a copy constructor.
 #[inline]
-pub fn copy<P>(ptr: P) -> impl Ctor<Output = P::Target>
+pub fn copy<P>(ptr: P) -> impl New<Output = P::Target>
 where
   P: Deref,
-  P::Target: CopyCtor,
+  P::Target: CopyNew,
 {
   unsafe {
     from_placement_fn(move |dest| {
-      CopyCtor::copy_ctor(&*ptr, dest);
+      CopyNew::copy_new(&*ptr, dest);
 
       // Because `*ptr` is still intact, we can drop it normally.
       mem::drop(ptr)

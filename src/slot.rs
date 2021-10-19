@@ -46,16 +46,16 @@
 //! assert_eq!(*val.unwrap(), 42);
 //! ```
 //!
-//! [`Slot`]s provide a natural location for emplacing [`Ctor`]s on the stack.
-//! The [`emplace!()`] macro is intended to make this operation
+//! [`Slot`]s provide a natural location for emplacing values on the stack.
+//! The [`moveit!()`] macro is intended to make this operation
 //! straight-forward.
 
 use core::mem::MaybeUninit;
 use core::pin::Pin;
 
-use crate::ctor;
-use crate::ctor::Ctor;
-use crate::ctor::TryCtor;
+use crate::new;
+use crate::new::New;
+use crate::new::TryNew;
 use crate::move_ref::MoveRef;
 
 #[cfg(doc)]
@@ -81,8 +81,6 @@ impl<'frame, T> Slot<'frame, T> {
   }
 
   /// Put `val` into this slot, returning a new [`MoveRef`].
-  ///
-  /// The [`stackbox!()`] macro is a shorthand for this function.
   pub fn put(self, val: T) -> MoveRef<'frame, T> {
     *self.0 = MaybeUninit::new(val);
     unsafe { MoveRef::new_unchecked(&mut *(self.0 as *mut _ as *mut T)) }
@@ -90,31 +88,29 @@ impl<'frame, T> Slot<'frame, T> {
 
   /// Pin `val` into this slot, returning a new, pinned [`MoveRef`].
   pub fn pin(self, val: T) -> Pin<MoveRef<'frame, T>> {
-    self.emplace(ctor::new(val))
+    self.emplace(new::new(val))
   }
 
-  /// Emplace `ctor` into this slot, returning a new, pinned [`MoveRef`].
-  ///
-  /// The [`emplace!()`] macro is a shorthand for this function.
-  pub fn emplace<C: Ctor<Output = T>>(
+  /// Emplace `new` into this slot, returning a new, pinned [`MoveRef`].
+  pub fn emplace<N: New<Output = T>>(
     self,
-    ctor: C,
+    new: N,
   ) -> Pin<MoveRef<'frame, T>> {
     unsafe {
-      ctor.ctor(Pin::new_unchecked(self.0));
+      new.new(Pin::new_unchecked(self.0));
       Pin::new_unchecked(MoveRef::new_unchecked(
         &mut *(self.0 as *mut _ as *mut T),
       ))
     }
   }
 
-  /// Try to emplace `ctor` into this slot, returning a new, pinned [`MoveRef`].
-  pub fn try_emplace<C: TryCtor<Output = T>>(
+  /// Try to emplace `new` into this slot, returning a new, pinned [`MoveRef`].
+  pub fn try_emplace<N: TryNew<Output = T>>(
     self,
-    ctor: C,
-  ) -> Result<Pin<MoveRef<'frame, T>>, C::Error> {
+    new: N,
+  ) -> Result<Pin<MoveRef<'frame, T>>, N::Error> {
     unsafe {
-      ctor.try_ctor(Pin::new_unchecked(self.0))?;
+      new.try_new(Pin::new_unchecked(self.0))?;
       Ok(Pin::new_unchecked(MoveRef::new_unchecked(
         &mut *(self.0 as *mut _ as *mut T),
       )))

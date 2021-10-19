@@ -328,14 +328,14 @@ pub mod __macro {
 ///
 /// This macro allows for three exotic types of `let` bindings:
 /// ```
-/// # use moveit::{moveit, ctor, move_ref::MoveRef};
+/// # use moveit::{moveit, new, move_ref::MoveRef};
 /// # use core::pin::Pin;
 /// let bx = Box::new(42);
 ///
 /// moveit! {
-///   // Use a `Ctor` to construct a new value in place on the stack. This
+///   // Use a `New` to construct a new value in place on the stack. This
 ///   // produces a value of type `Pin<MoveRef<_>>`.
-///   let x = new ctor::default::<i32>();
+///   let x = new::default::<i32>();
 ///   
 ///   // Move out of an existing `DerefMove` type, such as a `Box`. This has
 ///   // type `MoveRef<_>`, but can be pinned using `MoveRef::into_pin()`.
@@ -350,6 +350,8 @@ pub mod __macro {
 /// All three `lets`, including in-place construction, pin to the stack.
 /// Consider using something like [`Box::emplace()`] to perform construction on
 /// the heap.
+/// 
+/// [`Box::emplace()`]: crate::new::Emplace::emplace
 #[macro_export]
 macro_rules! moveit {
   (let $name:ident $(: $ty:ty)? = &move *$expr:expr $(; $($rest:tt)*)?) => {
@@ -368,11 +370,11 @@ macro_rules! moveit {
     $crate::emplace!(@put(mut) $name, $($ty)?, $expr);
     $crate::emplace!($($($rest)*)?);
   };
-  (let $name:ident $(: $ty:ty)? = new $expr:expr $(; $($rest:tt)*)?) => {
+  (let $name:ident $(: $ty:ty)? = $expr:expr $(; $($rest:tt)*)?) => {
     $crate::moveit!(@emplace $name, $($ty)?, $expr);
     $crate::moveit!($($($rest)*)?);
   };
-  (let mut $name:ident $(: $ty:ty)? = new $expr:expr $(; $($rest:tt)*)?) => {
+  (let mut $name:ident $(: $ty:ty)? = $expr:expr $(; $($rest:tt)*)?) => {
     $crate::moveit!(@emplace(mut) $name, $($ty)?, $expr);
     $crate::moveit!($($($rest)*)?);
   };
