@@ -46,8 +46,8 @@ where
   {
     type Output = T;
     #[inline]
-    unsafe fn new(self, dest: Pin<&mut MaybeUninit<Self::Output>>) {
-      (self.f)(dest)
+    unsafe fn new(self, this: Pin<&mut MaybeUninit<Self::Output>>) {
+      (self.f)(this)
     }
   }
 
@@ -72,7 +72,7 @@ pub fn by<T, F>(f: F) -> impl New<Output = T>
 where
   F: FnOnce() -> T,
 {
-  unsafe { by_raw(|mut dest| dest.set(MaybeUninit::new(f()))) }
+  unsafe { by_raw(|mut this| this.set(MaybeUninit::new(f()))) }
 }
 
 /// Returns a [`New`] that uses a [`From`] implementation to generate a `T`.
@@ -100,7 +100,7 @@ pub fn from<T: From<U>, U>(val: U) -> impl New<Output = T> {
 /// }
 /// assert_eq!(*x, 42);
 /// ```
-/// 
+///
 /// In general, you will almost always want [`from()`].
 #[inline]
 pub fn of<T>(val: T) -> impl New<Output = T> {
@@ -132,9 +132,7 @@ pub fn default<T: Default>() -> impl New<Output = T> {
 /// `f` must respect the safety requirements of [`TryNew`], since it is used
 /// as an implementation basis.
 #[inline]
-pub unsafe fn try_by_raw<T, E, F>(
-  f: F,
-) -> impl TryNew<Output = T, Error = E>
+pub unsafe fn try_by_raw<T, E, F>(f: F) -> impl TryNew<Output = T, Error = E>
 where
   F: FnOnce(Pin<&mut MaybeUninit<T>>) -> Result<(), E>,
 {
@@ -152,9 +150,9 @@ where
     #[inline]
     unsafe fn try_new(
       self,
-      dest: Pin<&mut MaybeUninit<Self::Output>>,
+      this: Pin<&mut MaybeUninit<Self::Output>>,
     ) -> Result<(), E> {
-      (self.f)(dest)
+      (self.f)(this)
     }
   }
 
@@ -171,9 +169,7 @@ pub fn try_by<T, E, F>(f: F) -> impl TryNew<Output = T, Error = E>
 where
   F: FnOnce() -> Result<T, E>,
 {
-  unsafe {
-    try_by_raw(|mut dest| Ok(dest.set(MaybeUninit::new(f()?))))
-  }
+  unsafe { try_by_raw(|mut this| Ok(this.set(MaybeUninit::new(f()?)))) }
 }
 
 /// Returns a [`TryNew`] that uses a `TryFrom` implementation to generate a `T`.

@@ -25,15 +25,15 @@ use crate::new::New;
 /// # Safety
 ///
 /// After [`CopyNew::copy_new()`] is called:
-/// - `dest` must have been initialized.
+/// - `this` must have been initialized.
 pub unsafe trait CopyNew: Sized {
-  /// Copy-construct `src` into `dest`, effectively re-pinning it at a new
+  /// Copy-construct `src` into `this`, effectively re-pinning it at a new
   /// location.
   ///
   /// # Safety
   ///
   /// The same safety requirements of [`New::new()`] apply.
-  unsafe fn copy_new(src: &Self, dest: Pin<&mut MaybeUninit<Self>>);
+  unsafe fn copy_new(src: &Self, this: Pin<&mut MaybeUninit<Self>>);
 }
 
 /// Returns a new `New` that uses a copy constructor.
@@ -44,8 +44,8 @@ where
   P::Target: CopyNew,
 {
   unsafe {
-    new::by_raw(move |dest| {
-      CopyNew::copy_new(&*ptr, dest);
+    new::by_raw(move |this| {
+      CopyNew::copy_new(&*ptr, this);
 
       // Because `*ptr` is still intact, we can drop it normally.
       mem::drop(ptr)

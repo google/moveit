@@ -28,9 +28,9 @@ use crate::new::New;
 ///
 /// After [`MoveNew::move_new()`] is called:
 /// - `src` should be treated as having been destroyed.
-/// - `dest` must have been initialized.
+/// - `this` must have been initialized.
 pub unsafe trait MoveNew: Sized {
-  /// Move-construct `src` into `dest`, effectively re-pinning it at a new
+  /// Move-construct `src` into `this`, effectively re-pinning it at a new
   /// location.
   ///
   /// # Safety
@@ -40,7 +40,7 @@ pub unsafe trait MoveNew: Sized {
   /// effectively been destroyed.
   unsafe fn move_new(
     src: Pin<MoveRef<Self>>,
-    dest: Pin<&mut MaybeUninit<Self>>,
+    this: Pin<&mut MaybeUninit<Self>>,
   );
 }
 
@@ -53,9 +53,9 @@ where
 {
   let ptr = ptr.into();
   unsafe {
-    new::by_raw(move |dest| {
+    new::by_raw(move |this| {
       crate::moveit!(let ptr = &move ptr);
-      MoveNew::move_new(Pin::as_move(ptr), dest);
+      MoveNew::move_new(Pin::as_move(ptr), this);
     })
   }
 }
