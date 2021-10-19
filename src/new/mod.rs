@@ -13,7 +13,7 @@
 // limitations under the License.
 
 //! In-place constructors.
-//! 
+//!
 //! This module provides a range of helpers such as [`new::by()`] and
 //! [`new::from()`] for creating constructors. It is preferred style to
 //! `use moveit::new;` and refer to these helpers with a `new::` prefix.
@@ -23,7 +23,10 @@ use core::mem::MaybeUninit;
 use core::pin::Pin;
 
 #[cfg(doc)]
-use {alloc::{boxed::Box, rc::Rc, sync::Arc}, crate::new};
+use {
+  crate::new,
+  alloc::{boxed::Box, rc::Rc, sync::Arc},
+};
 
 mod copy_new;
 mod factories;
@@ -47,10 +50,10 @@ pub unsafe trait New {
   ///
   /// # Safety
   ///
-  /// `dest` must be freshly-created memory; this function must not
+  /// `this` must be freshly-created memory; this function must not
   /// be used to mutate a previously-pinned pointer that has had `self: Pin`
   /// functions called on it.
-  unsafe fn new(self, dest: Pin<&mut MaybeUninit<Self::Output>>);
+  unsafe fn new(self, this: Pin<&mut MaybeUninit<Self::Output>>);
 }
 
 /// An in-place constructor for a particular type, which can potentially fail.
@@ -72,12 +75,12 @@ pub unsafe trait TryNew {
   ///
   /// # Safety
   ///
-  /// `dest` must be freshly-created memory; this function must not
+  /// `this` must be freshly-created memory; this function must not
   /// be used to mutate a previously-pinned pointer that has had `self: Pin`
   /// functions called on it.
   unsafe fn try_new(
     self,
-    dest: Pin<&mut MaybeUninit<Self::Output>>,
+    this: Pin<&mut MaybeUninit<Self::Output>>,
   ) -> Result<(), Self::Error>;
 }
 
@@ -86,9 +89,9 @@ unsafe impl<N: New> TryNew for N {
   type Error = Infallible;
   unsafe fn try_new(
     self,
-    dest: Pin<&mut MaybeUninit<Self::Output>>,
+    this: Pin<&mut MaybeUninit<Self::Output>>,
   ) -> Result<(), Self::Error> {
-    self.new(dest);
+    self.new(this);
     Ok(())
   }
 }
