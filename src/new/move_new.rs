@@ -53,7 +53,7 @@ where
 {
   let ptr = ptr.into();
   unsafe {
-    new::from_placement_fn(move |dest| {
+    new::by_raw(move |dest| {
       crate::moveit!(let ptr = &move ptr);
       MoveNew::move_new(Pin::as_move(ptr), dest);
     })

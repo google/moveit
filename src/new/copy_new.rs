@@ -44,7 +44,7 @@ where
   P::Target: CopyNew,
 {
   unsafe {
-    new::from_placement_fn(move |dest| {
+    new::by_raw(move |dest| {
       CopyNew::copy_new(&*ptr, dest);
 
       // Because `*ptr` is still intact, we can drop it normally.

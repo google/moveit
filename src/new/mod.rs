@@ -13,13 +13,17 @@
 // limitations under the License.
 
 //! In-place constructors.
+//! 
+//! This module provides a range of helpers such as [`new::by()`] and
+//! [`new::from()`] for creating constructors. It is preferred style to
+//! `use moveit::new;` and refer to these helpers with a `new::` prefix.
 
 use core::convert::Infallible;
 use core::mem::MaybeUninit;
 use core::pin::Pin;
 
 #[cfg(doc)]
-use alloc::{boxed::Box, rc::Rc, sync::Arc};
+use {alloc::{boxed::Box, rc::Rc, sync::Arc}, crate::new};
 
 mod copy_new;
 mod factories;
