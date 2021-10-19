@@ -53,10 +53,10 @@
 use core::mem::MaybeUninit;
 use core::pin::Pin;
 
+use crate::move_ref::MoveRef;
 use crate::new;
 use crate::new::New;
 use crate::new::TryNew;
-use crate::move_ref::MoveRef;
 
 #[cfg(doc)]
 use alloc::boxed::Box;
@@ -88,14 +88,11 @@ impl<'frame, T> Slot<'frame, T> {
 
   /// Pin `val` into this slot, returning a new, pinned [`MoveRef`].
   pub fn pin(self, val: T) -> Pin<MoveRef<'frame, T>> {
-    self.emplace(new::new(val))
+    self.emplace(new::of(val))
   }
 
   /// Emplace `new` into this slot, returning a new, pinned [`MoveRef`].
-  pub fn emplace<N: New<Output = T>>(
-    self,
-    new: N,
-  ) -> Pin<MoveRef<'frame, T>> {
+  pub fn emplace<N: New<Output = T>>(self, new: N) -> Pin<MoveRef<'frame, T>> {
     unsafe {
       new.new(Pin::new_unchecked(self.0));
       Pin::new_unchecked(MoveRef::new_unchecked(

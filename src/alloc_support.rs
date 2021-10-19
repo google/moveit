@@ -21,10 +21,10 @@ use alloc::boxed::Box;
 use alloc::rc::Rc;
 use alloc::sync::Arc;
 
-use crate::new::Emplace;
-use crate::new::TryNew;
 use crate::move_ref::DerefMove;
 use crate::move_ref::MoveRef;
+use crate::new::Emplace;
+use crate::new::TryNew;
 
 unsafe impl<T> DerefMove for Box<T> {
   type Uninit = Box<MaybeUninit<T>>;

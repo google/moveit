@@ -350,7 +350,7 @@ pub mod __macro {
 /// All three `lets`, including in-place construction, pin to the stack.
 /// Consider using something like [`Box::emplace()`] to perform construction on
 /// the heap.
-/// 
+///
 /// [`Box::emplace()`]: crate::new::Emplace::emplace
 #[macro_export]
 macro_rules! moveit {

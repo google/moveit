@@ -149,12 +149,12 @@ extern crate alloc;
 mod alloc_support;
 
 pub mod move_ref;
-pub mod slot;
 pub mod new;
+pub mod slot;
 
 // #[doc(inline)]
 pub use crate::{
-  new::{CopyNew, New, Emplace, MoveNew, TryNew},
   move_ref::{DerefMove, MoveRef},
+  new::{CopyNew, Emplace, MoveNew, New, TryNew},
   slot::Slot,
 };
