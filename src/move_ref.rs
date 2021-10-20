@@ -318,6 +318,7 @@ pub mod __macro {
     }
 
     #[inline]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn deref_move(self, this: &mut T::Uninit) -> MoveRef<T::Target> {
       T::deref_move(this)
     }

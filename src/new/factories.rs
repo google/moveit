@@ -169,7 +169,12 @@ pub fn try_by<T, E, F>(f: F) -> impl TryNew<Output = T, Error = E>
 where
   F: FnOnce() -> Result<T, E>,
 {
-  unsafe { try_by_raw(|mut this| Ok(this.set(MaybeUninit::new(f()?)))) }
+  unsafe {
+    try_by_raw(|this| {
+      this.get_unchecked_mut().write(f()?);
+      Ok(())
+    })
+  }
 }
 
 /// Returns a [`TryNew`] that uses a `TryFrom` implementation to generate a `T`.
