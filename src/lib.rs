@@ -85,18 +85,19 @@
 //! impl Unmovable {
 //!   // Defer construction until the final location is known.
 //!   fn new(data: String) -> impl New<Output = Self> {
-//!     unsafe {
-//!       new::by_raw(|this| {
-//!         let this = this.get_unchecked_mut().write(Unmovable {
-//!           data,
-//!           // We only create the pointer once the data is in place
-//!           // otherwise it will have already moved before we even started.
-//!           slice: NonNull::dangling(),
-//!           _pin: PhantomPinned,
-//!         });
-//!         this.slice = NonNull::from(&this.data);
-//!       })
-//!     }
+//!     new::of(Unmovable {
+//!       data,
+//!       // We only create the pointer once the data is in place
+//!       // otherwise it will have already moved before we even started.
+//!       slice: NonNull::dangling(),
+//!       _pin: PhantomPinned,
+//!     }).with(|this| unsafe {
+//!       let this = this.get_unchecked_mut();
+//!       this.slice = NonNull::from(&this.data);
+//!     })
+//!     
+//!     // It is also possible to use other `new::` helpers, such as
+//!     // `new::by` and `new::by_raw`, to configure construction behavior.
 //!   }
 //! }
 //!
