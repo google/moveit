@@ -139,6 +139,8 @@
 
 #![no_std]
 #![deny(warnings, missing_docs, unused)]
+// These clippy lints are somewhat at odds with our use of `new()`.
+#![allow(clippy::new_ret_no_self, clippy::wrong_self_convention)]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
