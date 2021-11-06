@@ -66,6 +66,24 @@ impl<'a, T: ?Sized> MoveRef<'a, T> {
   pub fn into_pin(this: Self) -> Pin<Self> {
     unsafe { Pin::new_unchecked(this) }
   }
+
+  /// Returns this `MoveRef<T>` as a raw pointer, without creating an
+  /// intermediate reference.
+  ///
+  /// The usual caveats for casting a reference to a pointer apply.
+  #[inline]
+  pub fn as_ptr(this: &Self) -> *const T {
+    this.ptr
+  }
+
+  /// Returns this `MoveRef<T>` as a raw mutable pointer, without creating an
+  /// intermediate reference.
+  ///
+  /// The usual caveats for casting a reference to a pointer apply.
+  #[inline]
+  pub fn as_mut_ptr(this: &mut Self) -> *mut T {
+    this.ptr
+  }
 }
 
 impl<'a, T> MoveRef<'a, T> {
