@@ -196,3 +196,15 @@ where
     (self.1)(this)
   }
 }
+
+/// A swappable type, which is able to efficiently swap the contents of two of
+/// its values.
+///
+/// Unlike [`New`], `Swap` is safe, because it does not impose any requirements
+/// on the swapped pointers.
+///
+/// It is possible to implement swapping with a source type that isn't `Self`.
+pub trait Swap<Rhs = Self> {
+  /// Swaps the contents of `self` and `src` without running any destructors.
+  fn swap_with(self: Pin<&mut Self>, src: Pin<&mut Rhs>);
+}
