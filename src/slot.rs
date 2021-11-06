@@ -82,8 +82,7 @@ impl<'frame, T> Slot<'frame, T> {
 
   /// Put `val` into this slot, returning a new [`MoveRef`].
   pub fn put(self, val: T) -> MoveRef<'frame, T> {
-    *self.0 = MaybeUninit::new(val);
-    unsafe { MoveRef::new_unchecked(&mut *(self.0 as *mut _ as *mut T)) }
+    unsafe { MoveRef::new_unchecked(self.0.write(val)) }
   }
 
   /// Pin `val` into this slot, returning a new, pinned [`MoveRef`].
@@ -93,11 +92,9 @@ impl<'frame, T> Slot<'frame, T> {
 
   /// Emplace `new` into this slot, returning a new, pinned [`MoveRef`].
   pub fn emplace<N: New<Output = T>>(self, new: N) -> Pin<MoveRef<'frame, T>> {
-    unsafe {
-      new.new(Pin::new_unchecked(self.0));
-      Pin::new_unchecked(MoveRef::new_unchecked(
-        &mut *(self.0 as *mut _ as *mut T),
-      ))
+    match self.try_emplace(new) {
+      Ok(x) => x,
+      Err(e) => match e {},
     }
   }
 
@@ -108,8 +105,8 @@ impl<'frame, T> Slot<'frame, T> {
   ) -> Result<Pin<MoveRef<'frame, T>>, N::Error> {
     unsafe {
       new.try_new(Pin::new_unchecked(self.0))?;
-      Ok(Pin::new_unchecked(MoveRef::new_unchecked(
-        &mut *(self.0 as *mut _ as *mut T),
+      Ok(MoveRef::into_pin(MoveRef::new_unchecked(
+        self.0.assume_init_mut(),
       )))
     }
   }
