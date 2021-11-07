@@ -138,7 +138,7 @@
 //!
 //! [`Pin` documentation]: https://doc.rust-lang.org/std/pin/index.html#drop-guarantee
 
-#![no_std]
+#![cfg_attr(not(test), no_std)]
 #![deny(warnings, missing_docs, unused)]
 // These clippy lints are somewhat at odds with our use of `new()`.
 #![allow(clippy::new_ret_no_self, clippy::wrong_self_convention)]
