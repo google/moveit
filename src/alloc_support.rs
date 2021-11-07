@@ -22,21 +22,25 @@ use alloc::rc::Rc;
 use alloc::sync::Arc;
 
 use crate::move_ref::DerefMove;
+use crate::move_ref::ForgetIfForgotten;
 use crate::move_ref::MoveRef;
 use crate::new::Emplace;
 use crate::new::TryNew;
 
 unsafe impl<T> DerefMove for Box<T> {
-  type Uninit = Box<MaybeUninit<T>>;
+  type Uninit = ForgetIfForgotten<Box<MaybeUninit<T>>>;
 
   #[inline]
   fn deinit(self) -> Self::Uninit {
-    unsafe { Box::from_raw(Box::into_raw(self).cast::<MaybeUninit<T>>()) }
+    let ptr =
+      unsafe { Box::from_raw(Box::into_raw(self).cast::<MaybeUninit<T>>()) };
+    ForgetIfForgotten::new(ptr)
   }
 
   #[inline]
   unsafe fn deref_move(this: &mut Self::Uninit) -> MoveRef<Self::Target> {
-    MoveRef::new_unchecked(&mut *(&mut **this as *mut MaybeUninit<T> as *mut T))
+    let (ptr, df) = this.ptrs();
+    MoveRef::new_unchecked(&mut *(ptr as *mut MaybeUninit<T> as *mut T), df)
   }
 }
 
