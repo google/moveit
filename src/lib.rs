@@ -153,9 +153,13 @@ pub mod move_ref;
 pub mod new;
 pub mod slot;
 
+#[cfg(feature = "alloc")]
+pub mod vec;
+
 // #[doc(inline)]
 pub use crate::{
   move_ref::{DerefMove, MoveRef},
   new::{CopyNew, Emplace, MoveNew, New, TryNew},
   slot::Slot,
+  vec::Vec,
 };
