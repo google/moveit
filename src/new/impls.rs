@@ -147,7 +147,7 @@ trivial_copy! {
   core::time::Duration,
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 trivial_copy! {
   alloc::boxed::Box<T> where [T],
 
