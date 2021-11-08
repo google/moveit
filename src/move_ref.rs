@@ -274,6 +274,28 @@ impl<'a, T> From<MoveRef<'a, T>> for Pin<MoveRef<'a, T>> {
 ///
 /// This criterion is key to the implementation of `deinit`, which will usually
 /// transmute the pointer in some manner.
+///
+/// ## Pin Transparency
+///
+/// Moreover, the functions of this trait must be "`Pin` transparent": it should
+/// be possible to call `deinit()` (and subsequently `deref_move()`) on a
+/// pointer that was once pinned but has been unsafely unpinned in order to call
+/// `deinit()`. In other words, the following sequence of operations, taken as
+/// one atomic unit, must be safe:
+/// ```text
+///   Pin<P> -> P -> P::Uninit -> MoveRef<P::Target> -> Pin<MoveRef<P::Target>>
+///          |    |            |                     |
+///        Pin::into_inner_unchecked()               |
+///               |            |                     |
+///             DerefMove::deinit()                 MoveRef::into_pin()
+///                            |
+///                          DerefMove::deref_move()
+/// ```
+/// It is not required that individual steps of this sequence be safe in a
+/// vacuum.
+///
+/// This functionality was previously provided by the unsound `Pin::as_move()`
+/// function.
 pub unsafe trait DerefMove: DerefMut + Sized {
   /// An "uninitialized" version of `Self`.
   ///
@@ -324,40 +346,6 @@ where
   /// one call to `deinit()`.
   unsafe fn deref_move(this: &mut Self::Uninit) -> MoveRef<Self::Target> {
     P::deref_move(&mut *(this as *mut Self::Uninit as *mut P::Uninit))
-  }
-}
-
-/// Extensions for using `DerefMove` types with `PinExt`.
-pub trait PinExt<P: DerefMove> {
-  /// Gets a pinned `MoveRef` out of the pinned pointer.
-  ///
-  /// This function is best paired with [`moveit!()`]:
-  /// ```
-  /// # use core::pin::Pin;
-  /// # use moveit::{moveit, move_ref::PinExt as _};
-  /// let ptr = Box::pin(5);
-  /// moveit!(let mv = &move ptr);
-  /// Pin::as_move(mv);
-  /// ```
-  /// Taking a trip through [`moveit!()`] is unavoidable due to the nature of
-  /// `MoveRef`.
-  ///
-  /// Compare with [`Pin::as_mut()`].
-  fn as_move(this: MoveRef<Pin<P>>) -> Pin<MoveRef<P::Target>>;
-}
-
-impl<P: DerefMove> PinExt<P> for Pin<P> {
-  fn as_move(mut this: MoveRef<Pin<P>>) -> Pin<MoveRef<P::Target>> {
-    unsafe {
-      let inner = Pin::get_unchecked_mut(Pin::as_mut(&mut *this));
-      // Extend the lifetime of `inner` to unlink it from `this`. Because we
-      // own `this`'s pointee, this is safe.
-      let inner = mem::transmute::<&mut P::Target, &mut P::Target>(inner);
-      // This may be an aliasing violation because `inner` and `this` briefly
-      // alias; this may be dealt with by passing `inner` through a raw pointer.
-      mem::forget(this);
-      MoveRef::into_pin(MoveRef::new_unchecked(inner))
-    }
   }
 }
 
