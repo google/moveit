@@ -86,12 +86,57 @@ impl<'a, T: ?Sized> MoveRef<'a, T> {
   }
 }
 
+// Extremely dangerous casts used by DerefMove below.
+impl<'a, T> MoveRef<'a, T> {
+  /// Consumes `self`, blindly casting the inner pointer to `U`.
+  unsafe fn cast<U>(self) -> MoveRef<'a, U> {
+    let mr = MoveRef {
+      ptr: unsafe { &mut *(self.ptr as *mut T as *mut U) },
+    };
+    mem::forget(self);
+    mr
+  }
+
+  /// Copies `self`, blindly casting the inner pointer to `U`.
+  ///
+  /// `self` will continue to exist, and its destructor will still
+  /// run. Callers should be responsible for ensuring this does not
+  /// result in adverse effects.
+  unsafe fn cast_from_mut<U>(&mut self) -> MoveRef<'a, U> {
+    MoveRef {
+      ptr: &mut *(MoveRef::as_mut_ptr(self) as *mut U),
+    }
+  }
+}
+
+impl<'a, T> MoveRef<'a, [T]> {
+  /// Consumes `self`, blindly casting the inner pointer to `[U]`.
+  unsafe fn cast<U>(self) -> MoveRef<'a, [U]> {
+    let mr = MoveRef {
+      ptr: unsafe { &mut *(self.ptr as *mut [T] as *mut [U]) },
+    };
+    mem::forget(self);
+    mr
+  }
+
+  /// Copies `self`, blindly casting the inner pointer to `[U]`.
+  ///
+  /// `self` will continue to exist, and its destructor will still
+  /// run. Callers should be responsible for ensuring this does not
+  /// result in adverse effects.
+  unsafe fn cast_from_mut<U>(&mut self) -> MoveRef<'a, [U]> {
+    MoveRef {
+      ptr: &mut *(MoveRef::as_mut_ptr(self) as *mut [U]),
+    }
+  }
+}
+
 impl<'a, T> MoveRef<'a, T> {
   /// Consume the `MoveRef<T>`, returning the wrapped value.
   #[inline]
   pub fn into_inner(this: Self) -> T {
     let val = unsafe { ptr::read(this.ptr) };
-    core::mem::forget(this);
+    mem::forget(this);
     val
   }
 }
@@ -117,14 +162,12 @@ unsafe impl<'a, T> DerefMove for MoveRef<'a, T> {
 
   #[inline]
   fn deinit(self) -> Self::Uninit {
-    MoveRef {
-      ptr: unsafe { &mut *(self.ptr as *mut T as *mut MaybeUninit<T>) },
-    }
+    unsafe { self.cast::<MaybeUninit<T>>() }
   }
 
   #[inline]
-  unsafe fn deref_move(this: &mut Self::Uninit) -> MoveRef<Self::Target> {
-    MoveRef::new_unchecked(&mut *(this.ptr as *mut MaybeUninit<T> as *mut T))
+  unsafe fn deref_move(this: &mut Self::Uninit) -> MoveRef<T> {
+    this.cast_from_mut::<T>()
   }
 }
 
@@ -133,16 +176,12 @@ unsafe impl<'a, T> DerefMove for MoveRef<'a, [T]> {
 
   #[inline]
   fn deinit(self) -> Self::Uninit {
-    MoveRef {
-      ptr: unsafe { &mut *(self.ptr as *mut [T] as *mut [MaybeUninit<T>]) },
-    }
+    unsafe { self.cast::<MaybeUninit<T>>() }
   }
 
   #[inline]
-  unsafe fn deref_move(this: &mut Self::Uninit) -> MoveRef<Self::Target> {
-    MoveRef::new_unchecked(
-      &mut *(this.ptr as *mut [MaybeUninit<T>] as *mut [T]),
-    )
+  unsafe fn deref_move(this: &mut Self::Uninit) -> MoveRef<[T]> {
+    this.cast_from_mut::<T>()
   }
 }
 
@@ -415,4 +454,23 @@ macro_rules! moveit {
     $crate::slot!(slot);
     let $($mut)? $name $(: $ty)? = slot.emplace($expr);
   };
+}
+
+#[cfg(test)]
+mod test {
+  use super::*;
+
+  #[test]
+  fn deref_move_of_move_ref() {
+    moveit! {
+      let x = &move Box::new(5);
+      let y = &move *x;
+    }
+  }
+
+  #[test]
+  fn move_ref_into_inner() {
+    moveit!(let x = &move Box::new(5));
+    let z = MoveRef::into_inner(x);
+  }
 }
