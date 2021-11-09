@@ -25,18 +25,22 @@ use crate::move_ref::DerefMove;
 use crate::move_ref::MoveRef;
 use crate::new::Emplace;
 use crate::new::TryNew;
+use crate::slot::DroppingSlot;
 
 unsafe impl<T> DerefMove for Box<T> {
-  type Uninit = Box<MaybeUninit<T>>;
+  type Storage = Box<MaybeUninit<T>>;
 
   #[inline]
-  fn deinit(self) -> Self::Uninit {
-    unsafe { Box::from_raw(Box::into_raw(self).cast::<MaybeUninit<T>>()) }
-  }
+  fn deref_move<'frame>(
+    this: MoveRef<'frame, Self>,
+    storage: &'frame mut DroppingSlot<Self::Storage>,
+  ) -> MoveRef<'frame, Self::Target> {
+    let this = MoveRef::into_inner(this);
+    let cast =
+      unsafe { Box::from_raw(Box::into_raw(this).cast::<MaybeUninit<T>>()) };
+    let storage = storage.put(cast);
 
-  #[inline]
-  unsafe fn deref_move(this: &mut Self::Uninit) -> MoveRef<Self::Target> {
-    MoveRef::new_unchecked(&mut *(&mut **this as *mut MaybeUninit<T> as *mut T))
+    unsafe { MoveRef::new_unchecked(storage.assume_init_mut()) }
   }
 }
 

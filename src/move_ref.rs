@@ -12,38 +12,53 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Move references, for emulating `&move`.
-
-#![allow(missing_docs, unused)]
+//! Move references.
+//!
+//! A move reference represents an owned value that is stored "somewhere else".
+//! We own the value, not the storage.
+//!
+//! A [`MoveRef<'a, T>`] represents a *permanent* unique reference to `T` for
+//! the lifetime `'a`: it is the longest-lived *possible* reference to the
+//! pointee, making it closer to a [`Box<T>`]
+//!
+//! Like [`&mut T`] but unlike [`Box<T>`], a [`MoveRef<T>`] is not responsible
+//! for destroying its storage, meaning that it is storage agnostic. The storage
+//! might be on the stack *or* on the heap; some RAII value on the stack is
+//! responsible for destroying just the storage, once the [`MoveRef<T>`] itself
+//! is gone.
+//!
+//! The main mechanism for obtaining [`MoveRef`]s is the [`moveit!()`] macro,
+//! which is analogous to a theoretical `&move expr` operator. This macro
+//! wraps [`DerefMove`], much like `&mut expr` wraps [`DerefMut`].
+//!
+//! Implementing [`DerefMove`] is a delicate affair; its documentation details
+//! exactly how it should be done.
 
 use core::marker::Unpin;
 use core::mem;
-use core::mem::MaybeUninit;
 use core::ops::Deref;
 use core::ops::DerefMut;
 use core::pin::Pin;
 use core::ptr;
 
 #[cfg(doc)]
-use alloc::{boxed::Box, rc::Rc, sync::Arc};
+use {
+  alloc::{boxed::Box, rc::Rc, sync::Arc},
+  core::mem::{ManuallyDrop, MaybeUninit},
+};
 
-/// A library emulation of the theoretical `&move T` type.
+use crate::slot::DroppingSlot;
+
+/// A `MoveRef<'a, T>` represents an owned `T` whose storage location is valid
+/// but unspecified.
 ///
-/// A `MoveRef<'a, T>` represents a unique reference to `T` for the lifetime
-/// `'a`. Unlike an `&mut T`, though, a `MoveRef<T>` is the *longest-lived* such
-/// reference, entitling it to run `T`'s destructor. In other words,
-/// `MoveRef<T>` owns its referent, but not its referent's storage.
-/// See the [module docs][`crate::move_ref`] for more information.
-///
-/// The main mechanism for obtaining `MoveRef`s is the [`moveit!()`] macro,
-/// which is analogous to a theoretical `&move expr` operator. This actuates
-/// a [`DerefMove`] implementation.
+/// See [the module documentation][self] for more details.
 pub struct MoveRef<'a, T: ?Sized> {
   ptr: &'a mut T,
 }
 
 impl<'a, T: ?Sized> MoveRef<'a, T> {
-  /// Create a new `MoveRef<T>` out of a mutable reference.
+  /// Creates a new `MoveRef<T>` out of a mutable reference.
   ///
   /// # Safety
   ///
@@ -58,7 +73,7 @@ impl<'a, T: ?Sized> MoveRef<'a, T> {
     Self { ptr }
   }
 
-  /// Convert a `MoveRef<T>` into a `Pin<MoveRef<T>>`.
+  /// Converts a `MoveRef<T>` into a `Pin<MoveRef<T>>`.
   ///
   /// Because we own the referent, we are entitled to pin it permanently. See
   /// [`Box::into_pin()`] for a standard-library equivalent.
@@ -91,43 +106,10 @@ impl<'a, T> MoveRef<'a, T> {
   /// Consumes `self`, blindly casting the inner pointer to `U`.
   unsafe fn cast<U>(self) -> MoveRef<'a, U> {
     let mr = MoveRef {
-      ptr: unsafe { &mut *(self.ptr as *mut T as *mut U) },
+      ptr: &mut *(self.ptr as *mut T as *mut U),
     };
     mem::forget(self);
     mr
-  }
-
-  /// Copies `self`, blindly casting the inner pointer to `U`.
-  ///
-  /// `self` will continue to exist, and its destructor will still
-  /// run. Callers should be responsible for ensuring this does not
-  /// result in adverse effects.
-  unsafe fn cast_from_mut<U>(&mut self) -> MoveRef<'a, U> {
-    MoveRef {
-      ptr: &mut *(MoveRef::as_mut_ptr(self) as *mut U),
-    }
-  }
-}
-
-impl<'a, T> MoveRef<'a, [T]> {
-  /// Consumes `self`, blindly casting the inner pointer to `[U]`.
-  unsafe fn cast<U>(self) -> MoveRef<'a, [U]> {
-    let mr = MoveRef {
-      ptr: unsafe { &mut *(self.ptr as *mut [T] as *mut [U]) },
-    };
-    mem::forget(self);
-    mr
-  }
-
-  /// Copies `self`, blindly casting the inner pointer to `[U]`.
-  ///
-  /// `self` will continue to exist, and its destructor will still
-  /// run. Callers should be responsible for ensuring this does not
-  /// result in adverse effects.
-  unsafe fn cast_from_mut<U>(&mut self) -> MoveRef<'a, [U]> {
-    MoveRef {
-      ptr: &mut *(MoveRef::as_mut_ptr(self) as *mut [U]),
-    }
   }
 }
 
@@ -154,34 +136,6 @@ impl<T: ?Sized> DerefMut for MoveRef<'_, T> {
   #[inline]
   fn deref_mut(&mut self) -> &mut Self::Target {
     self.ptr
-  }
-}
-
-unsafe impl<'a, T> DerefMove for MoveRef<'a, T> {
-  type Uninit = MoveRef<'a, MaybeUninit<T>>;
-
-  #[inline]
-  fn deinit(self) -> Self::Uninit {
-    unsafe { self.cast::<MaybeUninit<T>>() }
-  }
-
-  #[inline]
-  unsafe fn deref_move(this: &mut Self::Uninit) -> MoveRef<T> {
-    this.cast_from_mut::<T>()
-  }
-}
-
-unsafe impl<'a, T> DerefMove for MoveRef<'a, [T]> {
-  type Uninit = MoveRef<'a, [MaybeUninit<T>]>;
-
-  #[inline]
-  fn deinit(self) -> Self::Uninit {
-    unsafe { self.cast::<MaybeUninit<T>>() }
-  }
-
-  #[inline]
-  unsafe fn deref_move(this: &mut Self::Uninit) -> MoveRef<[T]> {
-    this.cast_from_mut::<T>()
   }
 }
 
@@ -228,27 +182,54 @@ impl<'a, T> From<MoveRef<'a, T>> for Pin<MoveRef<'a, T>> {
 ///   pointee type to [`MaybeUninit<T>`].
 /// - Extract a [`MoveRef`] out of the "deinitialized" pointer.
 ///
-/// The first part is used to root the storage to the stack in such a way that
-/// the putative `MoveRef` can run the destructor without a double-free
-/// occurring. The second part needs to be separate, since the `MoveRef`
-/// derives its lifetime from this "rooted" storage.
+/// The first part of this consists of converting the pointer into the
+/// "partially deinitialized" form, represented by the type
+/// [`DerefMove::Storage`]: it is the pointer as "pure storage".
 ///
-/// The correct way to perform a `DerefMove` operation is thus:
-/// ```
-/// # use moveit::{DerefMove, MoveRef, Slot, slot};
-/// # slot!(x: i32);
-/// # let p = x.put(5);
-/// # type MyPtr<'a> = MoveRef<'a, i32>;
-/// let mut deinit = MyPtr::deinit(p);
-/// let move_ref = unsafe { MyPtr::deref_move(&mut deinit) };
-/// ```
+/// This pointer should be placed into the [`DroppingSlot`] passed into
+/// `deref_move`, so that it has a fixed lifetime for the duration of the frame
+/// that the [`MoveRef`] will exist for.
 ///
-/// The [`moveit!()`]` macro can do this safely in a single operation.
+/// The mutable reference returned by the [`DroppingSlot`] should then be
+/// converted into a [`MoveRef`]. The end result is that the [`DroppingSlot`]
+/// owns the "outer" part of the pointer, while the [`MoveRef`] owns the "inner"
+/// part. The `'frame` lifetime enforces the correct destruction order of these
+/// two parts, since the [`MoveRef`] borrows the [`DroppingSlot`].
+///
+/// The [`moveit!()`] macro helps by constructing the [`DroppingSlot`] for you.
+///
+/// ## Worked Example: [`Box<T>`]
+///
+/// To inhibit the inner destructor of [`Box<T>`], we can use `Box<MaybeUninit<T>>`
+/// as [`DerefMove::Storage`]. [`MaybeUninit`] is preferred over [`ManuallyDrop`],
+/// since it helps avoid otherwise scary aliasing problems with `Box<&mut T>`.
+///
+/// The first step is to "cast" `Box<T>` into `Box<MaybeUninit<T>>` via
+/// [`Box::into_raw()`] and [`Box::from_raw()`]. This is then placed into the
+/// final storage location using [`DroppingSlot::put()`].
+///
+/// Then, the returned `&mut Box<MaybeUninit<T>>` is dereferenced twice to
+/// obtain an `&mut MaybeUninit<T>`, which [`MaybeUninit::assume_init_mut()`]
+/// can convert into an `&mut T`.
+///
+/// Finally, [`MoveRef::new_unchecked()`] constructs the return value.
+///
+/// The first step is safe because we construct a `MoveRef` to reinstate the
+/// destructor at the end of the function. The second step is safe because
+/// we know, a priori, that the `Box` contains an initialized value. The final
+/// step is safe, because we know, a priori, that the `Box` owns its pointee.
+///
+/// ## Worked Example: [`MoveRef<T>`]
+///
+/// We don't need to inhibit any destructors: we just need to convert a
+/// `MoveRef<MoveRef<T>>` into a `MoveRef<T>`, which we can do by using
+/// [`MoveRef::into_inner()`]. [`DerefMove::Storage`] can be whatever, so we
+/// choose [`()`] for this; the choice is not actually important!
 ///
 /// # Safety
 ///
 /// Implementing `DerefMove` correctly requires that the uniqueness requirement
-/// described above is upheld. In particular, the following function *must not*
+/// of [`MoveRef`] is upheld. In particular, the following function *must not*
 /// violate memory safety:
 /// ```
 /// # use moveit::{DerefMove, MoveRef, moveit};
@@ -272,58 +253,63 @@ impl<'a, T> From<MoveRef<'a, T>> for Pin<MoveRef<'a, T>> {
 /// }
 /// ```
 ///
-/// This criterion is key to the implementation of `deinit`, which will usually
-/// transmute the pointer in some manner.
+/// `deref_move()` must also be `Pin`-safe; even though it does not accept a
+/// pinned reference, it must take care to not move its contents at any time.
+/// In particular, the implementation of [`PinExt::as_move()`] must be safe by
+/// definition.
 pub unsafe trait DerefMove: DerefMut + Sized {
-  /// An "uninitialized" version of `Self`.
-  ///
-  /// This is usually `Self` but with `Target` changed to
-  /// `MaybeUninit<Self::Target>`.
-  type Uninit: Sized;
-
-  /// "Deinitializes" `self`, producing an opaque type that will destroy the
-  /// storage of `*self` without calling the pointee destructor.
-  fn deinit(self) -> Self::Uninit;
+  /// The "pure storage" form of `Self`, which owns the storage but not the
+  /// pointee.
+  type Storage: Sized;
 
   /// Moves out of `this`, producing a [`MoveRef`] that owns its contents.
   ///
-  /// Do not call this function directly; use [`moveit!()`] instead.
+  /// `storage` is a location *somewhere* responsible for rooting the lifetime
+  /// of `*this`'s storage. The location is unimportant, so long as it outlives
+  /// the resulting [`MoveRef`], which is enforced by the type signature.
   ///
-  /// # Safety
-  ///
-  /// This function may only be called on a value obtained from
-  /// [`DerefMove::deinit()`], and it may only be called *once* on it. Failure
-  /// to do so may result in double-frees.
-  ///
-  /// In other words, every call to `deref_move()` must be matched up to exactly
-  /// one call to `deinit()`.
-  unsafe fn deref_move(this: &mut Self::Uninit) -> MoveRef<Self::Target>;
+  /// [`moveit!()`] provides a convenient syntax for calling this function.
+  fn deref_move<'frame>(
+    this: MoveRef<'frame, Self>,
+    storage: &'frame mut DroppingSlot<Self::Storage>,
+  ) -> MoveRef<'frame, Self::Target>;
+}
+
+unsafe impl<'a, T> DerefMove for MoveRef<'a, T> {
+  type Storage = ();
+
+  fn deref_move<'frame>(
+    this: MoveRef<'frame, Self>,
+    _storage: &'frame mut DroppingSlot<Self::Storage>,
+  ) -> MoveRef<'frame, Self::Target> {
+    MoveRef::into_inner(this)
+  }
+}
+
+unsafe impl<'a, T> DerefMove for MoveRef<'a, [T]> {
+  type Storage = ();
+
+  fn deref_move<'frame>(
+    this: MoveRef<'frame, Self>,
+    _storage: &'frame mut DroppingSlot<Self::Storage>,
+  ) -> MoveRef<'frame, Self::Target> {
+    MoveRef::into_inner(this)
+  }
 }
 
 unsafe impl<P> DerefMove for Pin<P>
 where
   P: DerefMove,
-  P::Uninit: Deref, // Required due to a bound on Pin::new_unchecked().
   P::Target: Unpin,
 {
-  type Uninit = Pin<P::Uninit>;
+  // SAFETY: We do not need to pin the storage, because `P::Target: Unpin`.
+  type Storage = P::Storage;
 
-  fn deinit(self) -> Self::Uninit {
-    unsafe { Pin::new_unchecked(Pin::into_inner_unchecked(self).deinit()) }
-  }
-
-  /// Moves out of `this`, producing a [`MoveRef`] that owns its contents.
-  ///
-  /// # Safety
-  ///
-  /// This function may only be called on a value obtained from
-  /// [`DerefMove::deinit()`], and it may only be called *once* on it. Failure
-  /// to do so may result in double-frees.
-  ///
-  /// In other words, every call to `deref_move()` must be matched up to exactly
-  /// one call to `deinit()`.
-  unsafe fn deref_move(this: &mut Self::Uninit) -> MoveRef<Self::Target> {
-    P::deref_move(&mut *(this as *mut Self::Uninit as *mut P::Uninit))
+  fn deref_move<'frame>(
+    this: MoveRef<'frame, Self>,
+    storage: &'frame mut DroppingSlot<Self::Storage>,
+  ) -> MoveRef<'frame, Self::Target> {
+    Pin::into_inner(Pin::as_move(this, storage))
   }
 }
 
@@ -334,29 +320,34 @@ pub trait PinExt<P: DerefMove> {
   /// This function is best paired with [`moveit!()`]:
   /// ```
   /// # use core::pin::Pin;
-  /// # use moveit::{moveit, move_ref::PinExt as _};
+  /// # use moveit::{moveit, slot::DroppingSlot, move_ref::PinExt as _};
   /// let ptr = Box::pin(5);
   /// moveit!(let mv = &move ptr);
-  /// Pin::as_move(mv);
+  /// moveit::slot!(storage);
+  /// let mut storage = DroppingSlot::new(storage);
+  /// Pin::as_move(mv, &mut storage);
   /// ```
   /// Taking a trip through [`moveit!()`] is unavoidable due to the nature of
   /// `MoveRef`.
   ///
   /// Compare with [`Pin::as_mut()`].
-  fn as_move(this: MoveRef<Pin<P>>) -> Pin<MoveRef<P::Target>>;
+  fn as_move<'frame>(
+    this: MoveRef<'frame, Pin<P>>,
+    storage: &'frame mut DroppingSlot<P::Storage>,
+  ) -> Pin<MoveRef<'frame, P::Target>>;
 }
 
 impl<P: DerefMove> PinExt<P> for Pin<P> {
-  fn as_move(mut this: MoveRef<Pin<P>>) -> Pin<MoveRef<P::Target>> {
+  fn as_move<'frame>(
+    this: MoveRef<'frame, Pin<P>>,
+    storage: &'frame mut DroppingSlot<P::Storage>,
+  ) -> Pin<MoveRef<'frame, P::Target>> {
     unsafe {
-      let inner = Pin::get_unchecked_mut(Pin::as_mut(&mut *this));
-      // Extend the lifetime of `inner` to unlink it from `this`. Because we
-      // own `this`'s pointee, this is safe.
-      let inner = mem::transmute::<&mut P::Target, &mut P::Target>(inner);
-      // This may be an aliasing violation because `inner` and `this` briefly
-      // alias; this may be dealt with by passing `inner` through a raw pointer.
-      mem::forget(this);
-      MoveRef::into_pin(MoveRef::new_unchecked(inner))
+      // SAFETY:
+      // 1. `Pin<P>` is `repr(transparent)` and can transmute to `P`.
+      // 2. `deref_move()` must not move out of the actual storage, merely
+      //    shuffle pointers around.
+      MoveRef::into_pin(DerefMove::deref_move(this.cast::<P>(), storage))
     }
   }
 }
@@ -375,9 +366,12 @@ pub mod __macro {
     }
 
     #[inline]
-    #[allow(clippy::missing_safety_doc)]
-    pub unsafe fn deref_move(self, this: &mut T::Uninit) -> MoveRef<T::Target> {
-      T::deref_move(this)
+    pub fn deref_move<'frame>(
+      self,
+      this: MoveRef<'frame, T>,
+      storage: &'frame mut DroppingSlot<T::Storage>,
+    ) -> MoveRef<'frame, T::Target> {
+      T::deref_move(this, storage)
     }
   }
 }
@@ -439,12 +433,13 @@ macro_rules! moveit {
   ($(;)?) => {};
 
   (@move $(($mut:tt))? $name:ident, $($ty:ty)?, $expr:expr) => {
-    let ptr = $expr;
-    let ph = $crate::move_ref::__macro::DerefPhantom::new(&ptr);
-    let mut slot = $crate::move_ref::DerefMove::deinit(ptr);
+    $crate::slot!(ptr, storage);
 
-    #[allow(unused_mut, unsafe_code, unused_unsafe)]
-    let $($mut)? $name = unsafe { ph.deref_move(&mut slot) };
+    let ptr = ptr.put($expr);
+    let mut storage = $crate::slot::DroppingSlot::new(storage);
+
+    #[allow(unused_mut)]
+    let $($mut)? $name $(: $ty)? = $crate::move_ref::DerefMove::deref_move(ptr, &mut storage);
   };
   (@put $(($mut:tt))? $name:ident, $($ty:ty)?, $expr:expr) => {
     $crate::slot!(slot);
@@ -466,11 +461,12 @@ mod test {
       let x = &move Box::new(5);
       let y = &move *x;
     }
+    let _ = y;
   }
 
   #[test]
   fn move_ref_into_inner() {
     moveit!(let x = &move Box::new(5));
-    let z = MoveRef::into_inner(x);
+    let _ = MoveRef::into_inner(x);
   }
 }
