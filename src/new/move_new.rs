@@ -20,6 +20,7 @@ use crate::move_ref::MoveRef;
 use crate::move_ref::PinExt as _;
 use crate::new;
 use crate::new::New;
+use crate::slot::DroppingSlot;
 
 /// A move constructible type: a destination-aware `Clone` that destroys the
 /// moved-from value.
@@ -45,6 +46,15 @@ pub unsafe trait MoveNew: Sized {
 }
 
 /// Returns a [`New`] that forwards to [`MoveNew`].
+///
+/// ```
+/// # use moveit::{MoveRef, moveit, new};
+/// let foo = Box::new(42);
+/// moveit! {
+///   let bar = &move foo;
+///   let baz = new::mov(bar);
+/// }
+/// ```
 #[inline]
 pub fn mov<P>(ptr: impl Into<Pin<P>>) -> impl New<Output = P::Target>
 where
@@ -55,7 +65,11 @@ where
   unsafe {
     new::by_raw(move |this| {
       crate::moveit!(let ptr = &move ptr);
-      MoveNew::move_new(Pin::as_move(ptr), this);
+      crate::slot!(storage);
+      MoveNew::move_new(
+        Pin::as_move(ptr, &mut DroppingSlot::new(storage)),
+        this,
+      );
     })
   }
 }
