@@ -43,3 +43,13 @@ jobs:
       run: cargo test --verbose
     - name: cargo doc
       run: cargo doc --verbose
+
+  miri:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: rustup component add miri
+      run: rustup +nightly-2021-10-10 component add miri
+    - name: cargo miri test
+      run: cargo +nightly-2021-10-10 miri test --verbose
