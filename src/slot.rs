@@ -61,6 +61,7 @@ use core::mem::MaybeUninit;
 use core::pin::Pin;
 use core::ptr;
 
+use crate::drop_flag::DropFlag;
 use crate::move_ref::MoveRef;
 use crate::new;
 use crate::new::New;
@@ -75,7 +76,10 @@ use {crate::move_ref::DerefMove, alloc::boxed::Box};
 /// `Slot`'s storage is allocated on.
 ///
 /// See [`slot!()`] and [the module documentation][self].
-pub struct Slot<'frame, T>(&'frame mut MaybeUninit<T>);
+pub struct Slot<'frame, T> {
+  ptr: &'frame mut MaybeUninit<T>,
+  drop_flag: DropFlag<'frame>,
+}
 
 impl<'frame, T> Slot<'frame, T> {
   /// Creates a new `Slot` with the given pointer as its basis.
@@ -83,9 +87,17 @@ impl<'frame, T> Slot<'frame, T> {
   /// To safely construct a `Slot`, use [`slot!()`].
   ///
   /// # Safety
+  ///
   /// `ptr` must not be outlived by any other pointers to its allocation.
-  pub unsafe fn new_unchecked(ptr: &'frame mut MaybeUninit<T>) -> Self {
-    Self(ptr)
+  ///
+  /// `drop_flag`'s value must be dead, and must be a drop flag governing
+  /// the destruction of `ptr`'s storage in an appropriate manner as described
+  /// in [`moveit::drop_flag`][crate::drop_flag].
+  pub unsafe fn new_unchecked(
+    ptr: &'frame mut MaybeUninit<T>,
+    drop_flag: DropFlag<'frame>,
+  ) -> Self {
+    Self { ptr, drop_flag }
   }
 
   /// Put `val` into this slot, returning a new [`MoveRef`].
@@ -115,9 +127,11 @@ impl<'frame, T> Slot<'frame, T> {
     new: N,
   ) -> Result<Pin<MoveRef<'frame, T>>, N::Error> {
     unsafe {
-      new.try_new(Pin::new_unchecked(self.0))?;
+      self.drop_flag.inc();
+      new.try_new(Pin::new_unchecked(self.ptr))?;
       Ok(MoveRef::into_pin(MoveRef::new_unchecked(
-        self.0.assume_init_mut(),
+        self.ptr.assume_init_mut(),
+        self.drop_flag,
       )))
     }
   }
@@ -145,7 +159,10 @@ impl<'frame, T> Slot<'frame, T> {
   pub unsafe fn cast<U>(self) -> Slot<'frame, U> {
     debug_assert!(mem::size_of::<T>() >= mem::size_of::<U>());
     debug_assert!(mem::align_of::<T>() >= mem::align_of::<U>());
-    Slot(&mut *(self.0 as *mut MaybeUninit<T> as *mut MaybeUninit<U>))
+    Slot {
+      ptr: &mut *self.ptr.as_mut_ptr().cast(),
+      drop_flag: self.drop_flag,
+    }
   }
 }
 
@@ -164,99 +181,117 @@ impl<'frame, T> Slot<'frame, Pin<T>> {
 
 /// Similar to a [`Slot`], but able to drop its contents.
 ///
-/// A `DroppingSlot` wraps a `Slot`, but includes a *drop_flag*. `DroppingSlot`s
-/// are entitled to drop the contents of the wrapped `Slot` *if a value has been
-/// placed into it*.
+/// A `DroppingSlot` wraps a [`Slot`], and will drop its contents if the
+/// [`Slot`]'s drop flag is dead at the time of the `DroppingSlot`'s
+/// destruction.
 ///
-/// `DroppingSlot` exposes an API surface similar to `Slot`'s, but with a key
-/// difference: all functions take `&mut self`, and return `&mut T`. The
-/// contents of the `DroppingSlot` are only accessible *once*: the first time
-/// that `emplace()` or a similar function is called. Because these functions
-/// take `&mut self`, they will all panic if called after the slot is filled.
+/// This type has an API similar to [`Slot`]'s, but rather than returning
+/// `MoveRef`s, which would own the contents of this slot, we return a `&mut T`
+/// and a [`DropFlag`], which the caller can assemble into an
+/// appropriately-shaped `MoveRef`. The drop flag will be one decrement away
+/// from being dead; callers should make sure to decremement it to trigger
+/// destruction.
 ///
-/// In general, users of `moveit` should not be constructing `DroppingSlot`;
-/// instead, the [`moveit!()`] machinery constructs them and passes them into
-/// [`DerefMove::deref_move()`], which is where users will primarily encounter
-/// it.
+/// `DroppingSlot` is intended to be used with [`DerefMove::deref_move()`],
+/// and will usually not be created by `moveit`'s users. However, [`slot!()`]
+/// provides `DroppingSlot` support, too. These slots will silently forget their
+/// contents if the drop flag is left untouched, rather than crash.
 pub struct DroppingSlot<'frame, T> {
-  filled: bool,
-  slot: Slot<'frame, T>,
+  ptr: &'frame mut MaybeUninit<T>,
+  drop_flag: DropFlag<'frame>,
 }
 
 impl<'frame, T> DroppingSlot<'frame, T> {
-  /// Creates a new `OwningSlot` that wraps `slot`.
-  pub fn new(slot: Slot<'frame, T>) -> Self {
-    Self {
-      filled: false,
-      slot,
-    }
+  /// Creates a new `DroppingSlot` with the given pointer as its basis.
+  ///
+  /// To safely construct a `DroppingSlot`, use [`slot!()`].
+  ///
+  /// # Safety
+  ///
+  /// `ptr` must not be outlived by any other pointers to its allocation.
+  ///
+  /// `drop_flag`'s value must be dead, and must be a drop flag governing
+  /// the destruction of `ptr`'s storage in an appropriate manner as described
+  /// in [`moveit::drop_flag`][crate::drop_flag].
+  pub unsafe fn new_unchecked(
+    ptr: &'frame mut MaybeUninit<T>,
+    drop_flag: DropFlag<'frame>,
+  ) -> Self {
+    drop_flag.inc();
+    Self { ptr, drop_flag }
   }
 
   /// Put `val` into this slot, returning a reference to it.
-  ///
-  /// # Panics
-  ///
-  /// Panics if called after the slot has been filled.
-  pub fn put(&mut self, val: T) -> &mut T {
-    unsafe {
-      // SAFETY: Pinning is conserved by this operation.
-      Pin::into_inner_unchecked(self.pin(val))
-    }
+  pub fn put(self, val: T) -> (&'frame mut T, DropFlag<'frame>) {
+    ({ self.ptr }.write(val), self.drop_flag)
   }
 
-  /// Pin `val` into this slot, returning a new, pinned reference to it.
+  /// Pin `val` into this slot, returning a reference to it.
   ///
-  /// # Panics
+  /// # Safety
   ///
-  /// Panics if called after the slot has been filled.
-  pub fn pin(&mut self, val: T) -> Pin<&mut T> {
+  /// This function pins the memory this slot wraps, but does not guarantee its
+  /// destructor is run; that is the caller's responsibility, by decrementing
+  /// the given [`DropFlag`].
+  pub unsafe fn pin(self, val: T) -> (Pin<&'frame mut T>, DropFlag<'frame>) {
     self.emplace(new::of(val))
   }
 
-  /// Emplace `new` into this slot, returning a new, pinned reference to it.
+  /// Emplace `new` into this slot, returning a reference to it.
   ///
-  /// # Panics
+  /// # Safety
   ///
-  /// Panics if called after the slot has been filled.
-  pub fn emplace<N: New<Output = T>>(&mut self, new: N) -> Pin<&mut T> {
+  /// This function pins the memory this slot wraps, but does not guarantee its
+  /// destructor is run; that is the caller's responsibility, by decrementing
+  /// the given [`DropFlag`].
+  pub unsafe fn emplace<N: New<Output = T>>(
+    self,
+    new: N,
+  ) -> (Pin<&'frame mut T>, DropFlag<'frame>) {
     match self.try_emplace(new) {
-      Ok(x) => x,
+      Ok((x, d)) => (x, d),
       Err(e) => match e {},
     }
   }
 
-  /// Try to emplace `new` into this slot, returning a new, pinned reference to
-  /// it.
+  /// Try to emplace `new` into this slot, returning a reference to it.
   ///
-  /// If this function returns `Err`, the slot is *not* filled.
+  /// # Safety
   ///
-  /// # Panics
-  ///
-  /// Panics if called after the slot has been filled.
-  pub fn try_emplace<N: TryNew<Output = T>>(
-    &mut self,
+  /// This function pins the memory this slot wraps, but does not guarantee its
+  /// destructor is run; that is the caller's responsibility, by decrementing
+  /// the given [`DropFlag`].
+  pub unsafe fn try_emplace<N: TryNew<Output = T>>(
+    self,
     new: N,
-  ) -> Result<Pin<&mut T>, N::Error> {
-    assert!(!self.filled);
-    unsafe {
-      new.try_new(Pin::new_unchecked(self.slot.0))?;
-      self.filled = true;
-      Ok(Pin::new_unchecked(self.slot.0.assume_init_mut()))
-    }
-  }
-}
-
-impl<T> Drop for DroppingSlot<'_, T> {
-  fn drop(&mut self) {
-    if self.filled {
-      unsafe { ptr::drop_in_place(self.slot.0 as *mut _ as *mut T) }
-    }
+  ) -> Result<(Pin<&'frame mut T>, DropFlag<'frame>), N::Error> {
+    self.drop_flag.inc();
+    new.try_new(Pin::new_unchecked(self.ptr))?;
+    Ok((
+      Pin::new_unchecked(self.ptr.assume_init_mut()),
+      self.drop_flag,
+    ))
   }
 }
 
 #[doc(hidden)]
+#[allow(missing_docs)]
 pub mod __macro {
+  use super::*;
   pub use core;
+
+  pub struct SlotDropper<'frame, T> {
+    pub ptr: *mut T,
+    pub drop_flag: DropFlag<'frame>,
+  }
+
+  impl<T> Drop for SlotDropper<'_, T> {
+    fn drop(&mut self) {
+      if self.drop_flag.is_dead() {
+        unsafe { ptr::drop_in_place(self.ptr) }
+      }
+    }
+  }
 }
 
 /// Constructs a new [`Slot`].
@@ -272,14 +307,34 @@ pub mod __macro {
 ///
 /// This macro is especially useful for passing data into functions that want to
 /// emplace a value into the caller.
+///
+/// The `slot!(#[dropping] x)` syntax can be used to create a [`DroppingSlot`]
+/// instead. This should be a comparatively rare operation.
 #[macro_export]
 macro_rules! slot {
   ($($name:ident $(: $ty:ty)?),* $(,)*) => {$(
     let mut uninit = $crate::slot::__macro::core::mem::MaybeUninit::<
       $crate::slot!(@tyof $($ty)?)
     >::uninit();
+    let trap = $crate::drop_flag::TrappedFlag::new();
     #[allow(unsafe_code, unused_unsafe)]
-    let $name = unsafe { $crate::slot::Slot::new_unchecked(&mut uninit) };
+    let $name = unsafe {
+      $crate::slot::Slot::new_unchecked(&mut uninit, trap.flag())
+    };
+  )*};
+  (#[dropping] $($name:ident $(: $ty:ty)?),* $(,)*) => {$(
+    let mut uninit = $crate::slot::__macro::core::mem::MaybeUninit::<
+      $crate::slot!(@tyof $($ty)?)
+    >::uninit();
+    let trap = $crate::drop_flag::QuietFlag::new();
+    let _dropper = $crate::slot::__macro::SlotDropper {
+      ptr: uninit.as_mut_ptr(),
+      drop_flag: trap.flag(),
+    };
+    #[allow(unsafe_code, unused_unsafe)]
+    let $name = unsafe {
+      $crate::slot::DroppingSlot::new_unchecked(&mut uninit, trap.flag())
+    };
   )*};
   (@tyof) => {_};
   (@tyof $ty:ty) => {$ty};

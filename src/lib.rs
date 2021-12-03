@@ -149,6 +149,7 @@ extern crate alloc;
 #[cfg(feature = "alloc")]
 mod alloc_support;
 
+pub mod drop_flag;
 pub mod move_ref;
 pub mod new;
 pub mod slot;

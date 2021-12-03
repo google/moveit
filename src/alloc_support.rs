@@ -32,15 +32,17 @@ unsafe impl<T> DerefMove for Box<T> {
 
   #[inline]
   fn deref_move<'frame>(
-    this: MoveRef<'frame, Self>,
-    storage: &'frame mut DroppingSlot<Self::Storage>,
-  ) -> MoveRef<'frame, Self::Target> {
-    let this = MoveRef::into_inner(this);
+    self,
+    storage: DroppingSlot<'frame, Self::Storage>,
+  ) -> MoveRef<'frame, Self::Target>
+  where
+    Self: 'frame,
+  {
     let cast =
-      unsafe { Box::from_raw(Box::into_raw(this).cast::<MaybeUninit<T>>()) };
-    let storage = storage.put(cast);
+      unsafe { Box::from_raw(Box::into_raw(self).cast::<MaybeUninit<T>>()) };
 
-    unsafe { MoveRef::new_unchecked(storage.assume_init_mut()) }
+    let (storage, drop_flag) = storage.put(cast);
+    unsafe { MoveRef::new_unchecked(storage.assume_init_mut(), drop_flag) }
   }
 }
 
