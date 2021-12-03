@@ -33,6 +33,15 @@
 //!
 //! Implementing [`DerefMove`] is a delicate affair; its documentation details
 //! exactly how it should be done.
+//!
+//! # Drop Flags
+//!
+//! In order to be sound, a `MoveRef` must also hold a pointer to a drop flag,
+//! which is used to detect if the `MoveRef` was dropped without destruction.
+//!
+//! In general, [`mem::forget`]ing a `MoveRef` is a very, very bad idea. In the
+//! best case it will leak memory, but in some cases will crash the program in
+//! order to observe safety guarantees.
 
 use core::marker::Unpin;
 use core::mem;
@@ -43,10 +52,12 @@ use core::ptr;
 
 #[cfg(doc)]
 use {
+  crate::drop_flag,
   alloc::{boxed::Box, rc::Rc, sync::Arc},
   core::mem::{ManuallyDrop, MaybeUninit},
 };
 
+use crate::drop_flag::DropFlag;
 use crate::slot::DroppingSlot;
 
 /// A `MoveRef<'a, T>` represents an owned `T` whose storage location is valid
@@ -55,6 +66,7 @@ use crate::slot::DroppingSlot;
 /// See [the module documentation][self] for more details.
 pub struct MoveRef<'a, T: ?Sized> {
   ptr: &'a mut T,
+  drop_flag: DropFlag<'a>,
 }
 
 impl<'a, T: ?Sized> MoveRef<'a, T> {
@@ -68,9 +80,13 @@ impl<'a, T: ?Sized> MoveRef<'a, T> {
   ///
   /// In particular, if `ptr` outlives the returned `MoveRef`, it will point
   /// to dropped memory, which is UB.
+  ///
+  /// `drop_flag`'s value must not be dead, and must be a drop flag governing
+  /// the destruction of `ptr`'s storage in an appropriate manner as described
+  /// in [`moveit::drop_flag`][crate::drop_flag].
   #[inline]
-  pub unsafe fn new_unchecked(ptr: &'a mut T) -> Self {
-    Self { ptr }
+  pub unsafe fn new_unchecked(ptr: &'a mut T, drop_flag: DropFlag<'a>) -> Self {
+    Self { ptr, drop_flag }
   }
 
   /// Converts a `MoveRef<T>` into a `Pin<MoveRef<T>>`.
@@ -99,14 +115,20 @@ impl<'a, T: ?Sized> MoveRef<'a, T> {
   pub fn as_mut_ptr(this: &mut Self) -> *mut T {
     this.ptr
   }
+
+  #[allow(unused)]
+  pub(crate) fn drop_flag(this: &Self) -> DropFlag<'a> {
+    this.drop_flag
+  }
 }
 
 // Extremely dangerous casts used by DerefMove below.
 impl<'a, T> MoveRef<'a, T> {
   /// Consumes `self`, blindly casting the inner pointer to `U`.
-  unsafe fn cast<U>(self) -> MoveRef<'a, U> {
+  pub(crate) unsafe fn cast<U>(mut self) -> MoveRef<'a, U> {
     let mr = MoveRef {
-      ptr: &mut *(self.ptr as *mut T as *mut U),
+      ptr: &mut *Self::as_mut_ptr(&mut self).cast(),
+      drop_flag: self.drop_flag,
     };
     mem::forget(self);
     mr
@@ -117,9 +139,11 @@ impl<'a, T> MoveRef<'a, T> {
   /// Consume the `MoveRef<T>`, returning the wrapped value.
   #[inline]
   pub fn into_inner(this: Self) -> T {
-    let val = unsafe { ptr::read(this.ptr) };
-    mem::forget(this);
-    val
+    unsafe {
+      let val = ptr::read(this.ptr);
+      let _ = this.cast::<()>();
+      val
+    }
   }
 }
 
@@ -142,6 +166,7 @@ impl<T: ?Sized> DerefMut for MoveRef<'_, T> {
 impl<T: ?Sized> Drop for MoveRef<'_, T> {
   #[inline]
   fn drop(&mut self) {
+    self.drop_flag.dec_and_check_if_died();
     unsafe { ptr::drop_in_place(self.ptr) }
   }
 }
@@ -171,7 +196,7 @@ impl<'a, T> From<MoveRef<'a, T>> for Pin<MoveRef<'a, T>> {
 ///   a reference-counted pointer need not run the destructor if other pointers
 ///   are still alive.
 /// - [`Pin<P>`] for `P: DerefMove` implements `DerefMove` only when
-///   `P::Target: Unpin`, since `DerefMove: DerefMut`. To
+///   `P::Target: Unpin`, since `DerefMove: DerefMut`.
 ///
 /// # Principle of Operation
 ///
@@ -188,7 +213,8 @@ impl<'a, T> From<MoveRef<'a, T>> for Pin<MoveRef<'a, T>> {
 ///
 /// This pointer should be placed into the [`DroppingSlot`] passed into
 /// `deref_move`, so that it has a fixed lifetime for the duration of the frame
-/// that the [`MoveRef`] will exist for.
+/// that the [`MoveRef`] will exist for. The [`DroppingSlot`] will also provide
+/// a drop flag to use to build the returned [`MoveRef`].
 ///
 /// The mutable reference returned by the [`DroppingSlot`] should then be
 /// converted into a [`MoveRef`]. The end result is that the [`DroppingSlot`]
@@ -208,23 +234,27 @@ impl<'a, T> From<MoveRef<'a, T>> for Pin<MoveRef<'a, T>> {
 /// [`Box::into_raw()`] and [`Box::from_raw()`]. This is then placed into the
 /// final storage location using [`DroppingSlot::put()`].
 ///
-/// Then, the returned `&mut Box<MaybeUninit<T>>` is dereferenced twice to
-/// obtain an `&mut MaybeUninit<T>`, which [`MaybeUninit::assume_init_mut()`]
-/// can convert into an `&mut T`.
+/// This returns a `&mut Box<MaybeUninit<T>>` and a [`DropFlag`]; the former is
+/// converted into an `&mut T` via [`MaybeUninit::assume_init_mut()`].
 ///
-/// Finally, [`MoveRef::new_unchecked()`] constructs the return value.
+/// Finally, [`MoveRef::new_unchecked()`] is used to combine these into the
+/// return value.
 ///
 /// The first step is safe because we construct a `MoveRef` to reinstate the
 /// destructor at the end of the function. The second step is safe because
 /// we know, a priori, that the `Box` contains an initialized value. The final
 /// step is safe, because we know, a priori, that the `Box` owns its pointee.
 ///
+/// The use of the drop flag in this way makes it so that dropping the resulting
+/// `MoveRef` will leak the storage on the heap, exactly the same way as if we
+/// had leaked a `Box`.
+///
 /// ## Worked Example: [`MoveRef<T>`]
 ///
 /// We don't need to inhibit any destructors: we just need to convert a
 /// `MoveRef<MoveRef<T>>` into a `MoveRef<T>`, which we can do by using
 /// [`MoveRef::into_inner()`]. [`DerefMove::Storage`] can be whatever, so we
-/// choose [`()`] for this; the choice is not actually important!
+/// simply choose [`()`] for this; the choice is arbitrary.
 ///
 /// # Safety
 ///
@@ -262,7 +292,7 @@ pub unsafe trait DerefMove: DerefMut + Sized {
   /// pointee.
   type Storage: Sized;
 
-  /// Moves out of `this`, producing a [`MoveRef`] that owns its contents.
+  /// Moves out of `self`, producing a [`MoveRef`] that owns its contents.
   ///
   /// `storage` is a location *somewhere* responsible for rooting the lifetime
   /// of `*this`'s storage. The location is unimportant, so long as it outlives
@@ -270,19 +300,24 @@ pub unsafe trait DerefMove: DerefMut + Sized {
   ///
   /// [`moveit!()`] provides a convenient syntax for calling this function.
   fn deref_move<'frame>(
-    this: MoveRef<'frame, Self>,
-    storage: &'frame mut DroppingSlot<Self::Storage>,
-  ) -> MoveRef<'frame, Self::Target>;
+    self,
+    storage: DroppingSlot<'frame, Self::Storage>,
+  ) -> MoveRef<'frame, Self::Target>
+  where
+    Self: 'frame;
 }
 
 unsafe impl<'a, T: ?Sized> DerefMove for MoveRef<'a, T> {
   type Storage = ();
 
   fn deref_move<'frame>(
-    this: MoveRef<'frame, Self>,
-    _storage: &'frame mut DroppingSlot<Self::Storage>,
-  ) -> MoveRef<'frame, Self::Target> {
-    MoveRef::into_inner(this)
+    self,
+    _storage: DroppingSlot<'frame, ()>,
+  ) -> MoveRef<'frame, T>
+  where
+    Self: 'frame,
+  {
+    self
   }
 }
 
@@ -295,10 +330,13 @@ where
   type Storage = P::Storage;
 
   fn deref_move<'frame>(
-    this: MoveRef<'frame, Self>,
-    storage: &'frame mut DroppingSlot<Self::Storage>,
-  ) -> MoveRef<'frame, Self::Target> {
-    Pin::into_inner(Pin::as_move(this, storage))
+    self,
+    storage: DroppingSlot<'frame, Self::Storage>,
+  ) -> MoveRef<'frame, Self::Target>
+  where
+    Self: 'frame,
+  {
+    Pin::into_inner(Pin::as_move(self, storage))
   }
 }
 
@@ -311,32 +349,38 @@ pub trait PinExt<P: DerefMove> {
   /// # use core::pin::Pin;
   /// # use moveit::{moveit, slot::DroppingSlot, move_ref::PinExt as _};
   /// let ptr = Box::pin(5);
-  /// moveit!(let mv = &move ptr);
-  /// moveit::slot!(storage);
-  /// let mut storage = DroppingSlot::new(storage);
-  /// Pin::as_move(mv, &mut storage);
+  /// moveit::slot!(#[dropping] storage);
+  /// Pin::as_move(ptr, storage);
   /// ```
   /// Taking a trip through [`moveit!()`] is unavoidable due to the nature of
   /// `MoveRef`.
   ///
   /// Compare with [`Pin::as_mut()`].
   fn as_move<'frame>(
-    this: MoveRef<'frame, Pin<P>>,
-    storage: &'frame mut DroppingSlot<P::Storage>,
-  ) -> Pin<MoveRef<'frame, P::Target>>;
+    self,
+    storage: DroppingSlot<'frame, P::Storage>,
+  ) -> Pin<MoveRef<'frame, P::Target>>
+  where
+    Self: 'frame;
 }
 
 impl<P: DerefMove> PinExt<P> for Pin<P> {
   fn as_move<'frame>(
-    this: MoveRef<'frame, Pin<P>>,
-    storage: &'frame mut DroppingSlot<P::Storage>,
-  ) -> Pin<MoveRef<'frame, P::Target>> {
+    self,
+    storage: DroppingSlot<'frame, P::Storage>,
+  ) -> Pin<MoveRef<'frame, P::Target>>
+  where
+    Self: 'frame,
+  {
     unsafe {
       // SAFETY:
       // 1. `Pin<P>` is `repr(transparent)` and can transmute to `P`.
       // 2. `deref_move()` must not move out of the actual storage, merely
       //    shuffle pointers around.
-      MoveRef::into_pin(DerefMove::deref_move(this.cast::<P>(), storage))
+      MoveRef::into_pin(DerefMove::deref_move(
+        Pin::into_inner_unchecked(self),
+        storage,
+      ))
     }
   }
 }
@@ -357,9 +401,12 @@ pub mod __macro {
     #[inline]
     pub fn deref_move<'frame>(
       self,
-      this: MoveRef<'frame, T>,
-      storage: &'frame mut DroppingSlot<T::Storage>,
-    ) -> MoveRef<'frame, T::Target> {
+      this: T,
+      storage: DroppingSlot<'frame, T::Storage>,
+    ) -> MoveRef<'frame, T::Target>
+    where
+      Self: 'frame,
+    {
       T::deref_move(this, storage)
     }
   }
@@ -422,13 +469,10 @@ macro_rules! moveit {
   ($(;)?) => {};
 
   (@move $(($mut:tt))? $name:ident, $($ty:ty)?, $expr:expr) => {
-    $crate::slot!(ptr, storage);
-
-    let ptr = ptr.put($expr);
-    let mut storage = $crate::slot::DroppingSlot::new(storage);
+    $crate::slot!(#[dropping] storage);
 
     #[allow(unused_mut)]
-    let $($mut)? $name $(: $ty)? = $crate::move_ref::DerefMove::deref_move(ptr, &mut storage);
+    let $($mut)? $name $(: $ty)? = $crate::move_ref::DerefMove::deref_move($expr, storage);
   };
   (@put $(($mut:tt))? $name:ident, $($ty:ty)?, $expr:expr) => {
     $crate::slot!(slot);
@@ -443,19 +487,54 @@ macro_rules! moveit {
 #[cfg(test)]
 mod test {
   use super::*;
+  use std::alloc;
+  use std::alloc::Layout;
 
   #[test]
   fn deref_move_of_move_ref() {
     moveit! {
-      let x = &move Box::new(5);
-      let y = &move *x;
+      let x: MoveRef<Box<i32>> = &move Box::new(5);
+      let y: MoveRef<Box<i32>> = &move *x;
     }
     let _ = y;
   }
 
   #[test]
+  fn deref_move_of_box() {
+    let x = Box::new(5);
+    moveit!(let y: MoveRef<i32> = &move *x);
+    let _ = y;
+  }
+
+  #[test]
   fn move_ref_into_inner() {
-    moveit!(let x = &move Box::new(5));
+    moveit!(let x: MoveRef<Box<i32>> = &move Box::new(5));
     let _ = MoveRef::into_inner(x);
+  }
+
+  #[test]
+  #[should_panic]
+  fn unforgettable() {
+    moveit!(let x: MoveRef<i32> = &move 42);
+    mem::forget(x);
+  }
+
+  #[test]
+  fn forgettable_box() {
+    let mut x = Box::new(5);
+
+    // Save the pointer for later, so that we can free it to make Miri happy.
+    let ptr = x.as_mut() as *mut i32;
+
+    moveit!(let y: MoveRef<i32> = &move *x);
+
+    // This should leak but be otherwise safe.
+    mem::forget(y);
+
+    // Free the leaked pointer; Miri will notice if this turns out to be a
+    // double-free.
+    unsafe {
+      alloc::dealloc(ptr as *mut u8, Layout::new::<i32>());
+    }
   }
 }
