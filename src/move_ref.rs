@@ -275,18 +275,7 @@ pub unsafe trait DerefMove: DerefMut + Sized {
   ) -> MoveRef<'frame, Self::Target>;
 }
 
-unsafe impl<'a, T> DerefMove for MoveRef<'a, T> {
-  type Storage = ();
-
-  fn deref_move<'frame>(
-    this: MoveRef<'frame, Self>,
-    _storage: &'frame mut DroppingSlot<Self::Storage>,
-  ) -> MoveRef<'frame, Self::Target> {
-    MoveRef::into_inner(this)
-  }
-}
-
-unsafe impl<'a, T> DerefMove for MoveRef<'a, [T]> {
+unsafe impl<'a, T: ?Sized> DerefMove for MoveRef<'a, T> {
   type Storage = ();
 
   fn deref_move<'frame>(
