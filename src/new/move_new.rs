@@ -20,6 +20,7 @@ use crate::move_ref::MoveRef;
 use crate::move_ref::PinExt as _;
 use crate::new;
 use crate::new::New;
+use crate::slot;
 
 /// A move constructible type: a destination-aware `Clone` that destroys the
 /// moved-from value.
@@ -63,11 +64,7 @@ where
   let ptr = ptr.into();
   unsafe {
     new::by_raw(move |this| {
-      crate::slot!(
-        #[dropping]
-        storage
-      );
-      MoveNew::move_new(Pin::as_move(ptr, storage), this);
+      MoveNew::move_new(Pin::as_move(ptr, slot!(#[dropping])), this);
     })
   }
 }

@@ -439,6 +439,27 @@ pub mod __macro {
 /// Consider using something like [`Box::emplace()`] to perform construction on
 /// the heap.
 ///
+/// This macro also has *temporary* forms, where rather than creating a binding,
+/// a temporary (which cannot outlive its complete expression) is created:
+///
+/// ```
+/// # use moveit::{moveit, new, move_ref::MoveRef};
+/// # use core::pin::Pin;
+/// fn do_thing(x: Pin<MoveRef<i32>>) {
+///   // ...
+/// # let _ = x;
+/// }
+///
+/// do_thing(moveit!(new::of(42)));
+/// ```
+///
+/// Note that these bindings cannot outlive the subexpression:
+/// ```compile_fail
+/// # use moveit::{moveit, new};
+/// let x = moveit!(new::of(42));
+/// let y = *x;  // Borrow checker error.
+/// ```
+///
 /// [`Box::emplace()`]: crate::new::Emplace::emplace
 #[macro_export]
 macro_rules! moveit {
@@ -467,6 +488,15 @@ macro_rules! moveit {
     $crate::moveit!($($($rest)*)?);
   };
   ($(;)?) => {};
+
+  (&move *$expr:expr) => {
+    $crate::move_ref::DerefMove::deref_move(
+      $expr, $crate::slot!(#[dropping]),
+    )
+  };
+
+  (&move $expr:expr) => {$crate::slot!().put($expr)};
+  ($expr:expr) => {$crate::slot!().emplace($expr)};
 
   (@move $(($mut:tt))? $name:ident, $($ty:ty)?, $expr:expr) => {
     $crate::slot!(#[dropping] storage);
@@ -520,6 +550,12 @@ mod test {
   }
 
   #[test]
+  #[should_panic]
+  fn unforgettable_temporary() {
+    mem::forget(moveit!(&move 42));
+  }
+
+  #[test]
   fn forgettable_box() {
     let mut x = Box::new(5);
 
@@ -530,6 +566,23 @@ mod test {
 
     // This should leak but be otherwise safe.
     mem::forget(y);
+
+    // Free the leaked pointer; Miri will notice if this turns out to be a
+    // double-free.
+    unsafe {
+      alloc::dealloc(ptr as *mut u8, Layout::new::<i32>());
+    }
+  }
+
+  #[test]
+  fn forgettable_box_temporary() {
+    let mut x = Box::new(5);
+
+    // Save the pointer for later, so that we can free it to make Miri happy.
+    let ptr = x.as_mut() as *mut i32;
+
+    // This should leak but be otherwise safe.
+    mem::forget(moveit!(&move *x));
 
     // Free the leaked pointer; Miri will notice if this turns out to be a
     // double-free.
