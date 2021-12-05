@@ -278,19 +278,49 @@ impl<'frame, T> DroppingSlot<'frame, T> {
 #[allow(missing_docs)]
 pub mod __macro {
   use super::*;
+  use crate::drop_flag::QuietFlag;
   pub use core;
 
-  pub struct SlotDropper<'frame, T> {
-    pub ptr: *mut T,
-    pub drop_flag: DropFlag<'frame>,
+  pub struct SlotDropper<T> {
+    val: MaybeUninit<T>,
+    drop_flag: QuietFlag,
   }
 
-  impl<T> Drop for SlotDropper<'_, T> {
-    fn drop(&mut self) {
-      if self.drop_flag.is_dead() {
-        unsafe { ptr::drop_in_place(self.ptr) }
+  impl<T> SlotDropper<T> {
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+      Self {
+        val: MaybeUninit::uninit(),
+        drop_flag: QuietFlag::new(),
       }
     }
+
+    // Workaround for `unsafe {}` unhygine wrt to lints.
+    //
+    // This function is still `unsafe`.
+    pub fn new_unchecked_hygine_hack(&mut self) -> DroppingSlot<T> {
+      unsafe {
+        DroppingSlot::new_unchecked(&mut self.val, self.drop_flag.flag())
+      }
+    }
+  }
+
+  impl<T> Drop for SlotDropper<T> {
+    fn drop(&mut self) {
+      if self.drop_flag.flag().is_dead() {
+        unsafe { ptr::drop_in_place(self.val.assume_init_mut()) }
+      }
+    }
+  }
+
+  // Workaround for `unsafe {}` unhygine wrt to lints.
+  //
+  // This function is still `unsafe`.
+  pub fn new_unchecked_hygine_hack<'frame, T>(
+    ptr: &'frame mut MaybeUninit<T>,
+    drop_flag: DropFlag<'frame>,
+  ) -> Slot<'frame, T> {
+    unsafe { Slot::new_unchecked(ptr, drop_flag) }
   }
 }
 
@@ -310,31 +340,48 @@ pub mod __macro {
 ///
 /// The `slot!(#[dropping] x)` syntax can be used to create a [`DroppingSlot`]
 /// instead. This should be a comparatively rare operation.
+///
+/// This macro can also be used without arguments to create a *temporary*
+/// [`Slot`]. Such types cannot be assigned to variables but can be used as
+/// part of a larger expression:
+///
+/// ```compile_fail
+/// # use moveit::Slot;
+/// let bad: Slot<i32> = moveit::slot!();
+/// bad.put(4);  // Borrow check error.
+/// ```
+///
+/// ```
+/// # use moveit::Slot;
+/// fn do_thing(x: Slot<i32>) { /* ... */ }
+/// do_thing(moveit::slot!())
+/// ```
 #[macro_export]
 macro_rules! slot {
+  () => {
+    $crate::slot::__macro::new_unchecked_hygine_hack(
+      &mut $crate::slot::__macro::core::mem::MaybeUninit::uninit(),
+      $crate::drop_flag::TrappedFlag::new().flag(),
+    )
+  };
+  (#[dropping]) => {
+    $crate::slot::__macro::SlotDropper::new().new_unchecked_hygine_hack()
+  };
   ($($name:ident $(: $ty:ty)?),* $(,)*) => {$(
     let mut uninit = $crate::slot::__macro::core::mem::MaybeUninit::<
       $crate::slot!(@tyof $($ty)?)
-    >::uninit();
-    let trap = $crate::drop_flag::TrappedFlag::new();
-    #[allow(unsafe_code, unused_unsafe)]
-    let $name = unsafe {
-      $crate::slot::Slot::new_unchecked(&mut uninit, trap.flag())
-    };
+    >::uninit();let trap = $crate::drop_flag::TrappedFlag::new();
+    let $name = $crate::slot::__macro::new_unchecked_hygine_hack(
+      &mut uninit,
+      trap.flag()
+    );
   )*};
   (#[dropping] $($name:ident $(: $ty:ty)?),* $(,)*) => {$(
-    let mut uninit = $crate::slot::__macro::core::mem::MaybeUninit::<
+    let mut uninit = $crate::slot::__macro::SlotDropper::<
       $crate::slot!(@tyof $($ty)?)
-    >::uninit();
-    let trap = $crate::drop_flag::QuietFlag::new();
-    let _dropper = $crate::slot::__macro::SlotDropper {
-      ptr: uninit.as_mut_ptr(),
-      drop_flag: trap.flag(),
-    };
+    >::new();
     #[allow(unsafe_code, unused_unsafe)]
-    let $name = unsafe {
-      $crate::slot::DroppingSlot::new_unchecked(&mut uninit, trap.flag())
-    };
+    let $name = uninit.new_unchecked_hygine_hack();
   )*};
   (@tyof) => {_};
   (@tyof $ty:ty) => {$ty};
