@@ -320,7 +320,7 @@ pub mod __macro {
     ptr: &'frame mut MaybeUninit<T>,
     drop_flag: DropFlag<'frame>,
   ) -> Slot<'frame, T> {
-    unsafe { Slot::new_unchecked(ptr, drop_flag) }
+    Slot { ptr, drop_flag }
   }
 }
 
