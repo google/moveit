@@ -32,8 +32,8 @@ use core::hash;
 use core::iter::FromIterator;
 use core::mem;
 use core::mem::MaybeUninit;
-use core::ops::Bound;
 use core::ops::Deref;
+use core::ops::DerefMut;
 use core::ops::RangeBounds;
 use core::pin::Pin;
 use core::ptr;
@@ -42,7 +42,6 @@ use core::slice;
 
 use alloc::alloc::Layout;
 
-use crate::drop_flag::DropFlag;
 use crate::drop_flag::QuietFlag;
 use crate::move_ref::MoveRef;
 use crate::moveit;
@@ -52,12 +51,17 @@ use crate::new::MoveNew;
 use crate::new::New;
 use crate::new::Swap;
 
+#[path = "slice.rs"]
+mod slices;
+pub use slices::*;
+
 #[cfg(test)]
 mod test;
 
 #[cfg(doc)]
 mod std {
-  pub use alloc::vec::Vec;
+  pub use ::alloc::vec::Vec;
+  pub use core::*;
 }
 
 /// A contiguous growable array type, compatible with [`New`]-using types.
@@ -273,20 +277,6 @@ impl<T> Vec<T> {
     }
   }
 
-  /// Returns a raw pointer to the vector's buffer.
-  ///
-  /// Compare [`std::Vec::as_ptr()`].
-  pub fn as_ptr(&self) -> *const T {
-    self.ptr.as_ptr()
-  }
-
-  /// Returns an unsafe mutable pointer to the vector's buffer.
-  ///
-  /// Compare [`std::Vec::as_mut_ptr()`].
-  pub fn as_mut_ptr(&mut self) -> *mut T {
-    self.ptr.as_ptr()
-  }
-
   /// Forces the length of the vector to `new_len`.
   ///
   /// Compare [`std::Vec::set_len()`].
@@ -312,15 +302,11 @@ impl<T> Vec<T> {
       new::by_raw(move |place| {
         self.bounds_check(index..);
 
-        // Swap only if they're different! Self-swap is not supported.
-        if !Self::ZST && index != self.len() - 1 {
-          let x = self.get_unchecked_aliasing_mut(index);
-          let y = self.get_unchecked_aliasing_mut(self.len() - 1);
-          x.swap_with(y);
-        }
+        let end = self.len() - 1;
+        self.swap_unchecked(index, end);
 
         self.len -= 1;
-        self.move_unchecked(self.len, place);
+        self.move_unchecked(end, place);
       })
     }
   }
@@ -376,8 +362,9 @@ impl<T> Vec<T> {
         unsafe {
           // SAFETY: We don't need to set a trap, since `move_new()` is tailored to
           // the specific type and should not be rudely forgetting anything.
-          self.drop_flag.flag().inc();
-          let src = self.get_unchecked_aliasing_move(i, self.drop_flag.flag());
+          let qf = QuietFlag::new();
+          qf.flag().inc();
+          let src = self.get_unchecked_unbound_move(i, qf.flag());
           let dest = self.slot(i + 1);
           MoveNew::move_new(src, dest);
         }
@@ -401,20 +388,17 @@ impl<T> Vec<T> {
       new::by_raw(move |place| {
         self.bounds_check(index..);
 
-        if !Self::ZST {
-          // This is less tricky than `insert`, since we only need to rotate the range
-          // index..self.len(). We do this by swapping every adjacent pair in the
-          // range.
-          for i in index..self.len() - 1 {
-            let x = self.get_unchecked_aliasing_mut(i);
-            let y = self.get_unchecked_aliasing_mut(i + 1);
-            x.swap_with(y);
-          }
+        // This is less tricky than `insert`, since we only need to rotate the range
+        // index..self.len(). We do this by swapping every adjacent pair in the
+        // range.
+        for i in index..self.len() - 1 {
+          self.swap_unchecked(i, i + 1);
         }
 
         // The removed element winds up at the very end, so we just pop the vector.
         self.len -= 1;
-        self.move_unchecked(self.len, place);
+        let end = self.len;
+        self.move_unchecked(end, place);
       })
     }
   }
@@ -450,7 +434,8 @@ impl<T> Vec<T> {
     unsafe {
       Some(new::by_raw(move |place| {
         self.len -= 1;
-        self.move_unchecked(self.len, place);
+        let end = self.len;
+        self.move_unchecked(end, place);
       }))
     }
   }
@@ -463,7 +448,7 @@ impl<T> Vec<T> {
     T: MoveNew,
   {
     self.reserve(other.len());
-    for val in Vec::drain(moveit!(&move other), ..) {
+    for val in other.drain(..) {
       self.push(new::mov(val))
     }
   }
@@ -471,31 +456,32 @@ impl<T> Vec<T> {
   /// Creates a draining iterator that removes the specified range and yields
   /// the returned items.
   ///
-  /// Because this function hands out `MoveRef`s to the interior of this vector,
-  /// but does not take ownership of it, it needs somewhere to moor the
-  /// destruction of those references. Hence, it takes `MoveRef<&mut Self>` as
-  /// its receiver.
+  /// If the returned iterator is [`mem::forget`]'d, the allocation this vector
+  /// pointed to is leaked forever, and `self` is replaced with a fresh,
+  /// empty vector.
   ///
   /// Compare [`std::Vec::drain()`].
   ///
   /// # Panics
   ///
   /// Panics if `range` is out of bounds.
-  pub fn drain<'a, 'b, R>(mut this: MoveRef<'a, &'b mut Self>, range: R) -> Drain<'a, 'b, T>
+  pub fn drain<R>(&mut self, range: R) -> Drain<T>
   where
     T: MoveNew,
     R: RangeBounds<usize>,
   {
-    let (start, end) = this.bounds_check(range);
+    let mut vec = mem::take(self);
+    let (start, end) = vec.bounds_check(range);
     let range_len = end.saturating_sub(start);
-    let full_len = this.len;
+    let full_len = vec.len;
 
-    this.len = start;
+    vec.len = start;
     Drain {
       tail_start: start + range_len,
       tail_len: full_len - (start + range_len),
       index: start,
-      vec: this,
+      vec,
+      place: self,
     }
   }
 
@@ -521,14 +507,14 @@ impl<T> Vec<T> {
     T: MoveNew,
   {
     if at == 0 {
-      return mem::replace(self, Vec::new());
+      return mem::take(self);
     }
 
     if at == self.len() {
       return Vec::new();
     }
 
-    Vec::drain(moveit!(&move self), at..).collect()
+    self.drain(at..).collect()
   }
 
   /// Resizes the vector in-place, so that `len` becomes `new_len`.
@@ -624,128 +610,6 @@ impl<T> Vec<T> {
       self.push(new::copy(x));
     }
   }
-
-  /// Performs a bounds check on a range-like type, returning its start and end
-  /// relative to this vector.
-  #[inline]
-  fn bounds_check(&self, range: impl RangeBounds<usize>) -> (usize, usize) {
-    let start = match range.start_bound() {
-      Bound::Unbounded => 0,
-      Bound::Included(x) => *x,
-      Bound::Excluded(_) => unreachable!(),
-    };
-
-    let end = match range.end_bound() {
-      Bound::Unbounded => self.len(),
-      Bound::Included(x) => *x + 1,
-      Bound::Excluded(x) => *x,
-    };
-
-    if start > self.len() {
-      panic!("index out of bounds: {} > {}", start, self.len())
-    }
-
-    if end > self.len() {
-      panic!("index out of bounds: {} > {}", end, self.len())
-    }
-
-    (start, end)
-  }
-
-  /// Returns a mutable reference to an element, if it's present at that
-  /// index.Deref
-  ///
-  /// Compare [`<[T]>::get_mut()`], but returns a pinned reference instead.
-  ///
-  /// # Caveats
-  ///
-  /// Currently does not support ranged access.
-  pub fn get_mut(&mut self, idx: usize) -> Option<Pin<&mut T>> {
-    if idx >= self.len() {
-      return None;
-    }
-
-    unsafe { Some(self.get_unchecked_mut(idx)) }
-  }
-
-  /// Returns a mutable reference to an element, without doing bounds checking.
-  ///
-  /// Similar to [`<[T]>::get_unchecked_mut()`], but returns a pinned reference
-  /// instead.
-  ///
-  /// # Caveats
-  ///
-  /// Currently does not support ranged access.
-  ///
-  /// # Safety
-  ///
-  /// Usual out-of-bounds access caveats apply.
-  pub unsafe fn get_unchecked_mut(&mut self, idx: usize) -> Pin<&mut T> {
-    Pin::new_unchecked(&mut *self.ptr.as_ptr().add(idx))
-  }
-
-  /// Like `get_unchecked_mut()`, but assumes the caller avoids any aliasing
-  /// violations.
-  unsafe fn get_unchecked_aliasing_mut(&self, idx: usize) -> Pin<&mut T> {
-    Pin::new_unchecked(&mut *self.ptr.as_ptr().add(idx))
-  }
-
-  /// Returns a move reference to an element, without doing bounds checking.
-  ///
-  /// Similar to [`<[T]>::get_unchecked_mut()`], but returns a pinned reference
-  /// instead.
-  ///
-  /// # Caveats
-  ///
-  /// Currently does not support ranged access.
-  ///
-  /// # Safety
-  ///
-  /// Usual out-of-bounds access caveats apply; moreover, care should be taken
-  /// not to drop the returned move reference without making sure to fix
-  /// up the length of the vector, too.
-  ///
-  /// In general, this function makes it almost trivial to accidentally leave
-  /// uninitialized memory in the vector. Very danger.
-  pub unsafe fn get_unchecked_move<'a>(
-    &'a mut self,
-    idx: usize,
-    drop_flag: DropFlag<'a>,
-  ) -> Pin<MoveRef<'a, T>> {
-    MoveRef::into_pin(MoveRef::new_unchecked(
-      &mut *self.ptr.as_ptr().add(idx),
-      drop_flag,
-    ))
-  }
-
-  /// Like `get_unchecked_move()`, but assumes the caller avoids any aliasing
-  /// violations.
-  unsafe fn get_unchecked_aliasing_move<'a>(
-    &'a self,
-    idx: usize,
-    drop_flag: DropFlag<'a>,
-  ) -> Pin<MoveRef<'a, T>> {
-    MoveRef::into_pin(MoveRef::new_unchecked(
-      &mut *self.ptr.as_ptr().add(idx),
-      drop_flag,
-    ))
-  }
-
-  unsafe fn move_unchecked(
-    &mut self,
-    idx: usize,
-    place: Pin<&mut MaybeUninit<T>>,
-  ) where
-    T: MoveNew,
-  {
-    // SAFETY: We don't need to set a trap, since `move_new()` is tailored to
-    // the specific type and should not be rudely forgetting anything.
-    self.drop_flag.flag().inc();
-    MoveNew::move_new(
-      self.get_unchecked_aliasing_move(idx, self.drop_flag.flag()),
-      place,
-    )
-  }
 }
 
 /// A vector growth request.
@@ -834,9 +698,15 @@ impl<T: MoveNew> Vec<T> {
 // "Load bearing" trait impls.
 
 impl<T> Deref for Vec<T> {
-  type Target = [T];
-  fn deref(&self) -> &[T] {
-    unsafe { slice::from_raw_parts(self.ptr.as_ptr(), self.len) }
+  type Target = Slice<T>;
+  fn deref(&self) -> &Slice<T> {
+    unsafe { Slice::from_raw_parts(self.ptr.as_ptr(), self.len) }
+  }
+}
+
+impl<T> DerefMut for Vec<T> {
+  fn deref_mut(&mut self) -> &mut Slice<T> {
+    unsafe { Slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len) }
   }
 }
 
@@ -1017,7 +887,11 @@ impl<'a, T> IntoIterator for MoveRef<'a, Vec<T>> {
       let _ = self.cast::<()>();
     }
 
-    IntoIter { vec, start: start as *mut _, end: end as *mut _ }
+    IntoIter {
+      vec,
+      start: start as *mut _,
+      end: end as *mut _,
+    }
   }
 }
 
@@ -1118,7 +992,7 @@ impl<T: MoveNew> Extend<T> for Vec<T> {
 /// An iterator that moves out of a vector.
 ///
 /// See [`Vec::drain()`].
-pub struct Drain<'a, 'b: 'a, T: MoveNew> {
+pub struct Drain<'a, T: MoveNew> {
   // The index of the start of the "tail"; whatever is past the section of the
   // vector that we're not currently draining.
   tail_start: usize,
@@ -1128,12 +1002,15 @@ pub struct Drain<'a, 'b: 'a, T: MoveNew> {
   // The next item we intend to yield; must be `<= tail_start`.
   index: usize,
 
-  // This vector only points to the "head" of the vector that isn't being
-  // drained; the tail is held by tail_start/tail_len.
-  vec: MoveRef<'a, &'b mut Vec<T>>,
+  // The *actual* vector being drained.
+  vec: Vec<T>,
+
+  // This is where the vector we're draining from *was*, which we've
+  // temporarily swapped with `vec`.
+  place: &'a mut Vec<T>,
 }
 
-impl<T: MoveNew> Drain<'_, '_, T> {
+impl<T: MoveNew> Drain<'_, T> {
   /// Returns the remaining undrained items as a slice.
   pub fn as_slice(&self) -> &[T] {
     unsafe {
@@ -1145,7 +1022,7 @@ impl<T: MoveNew> Drain<'_, '_, T> {
   }
 }
 
-impl<'a, 'b: 'a, T: MoveNew> Iterator for Drain<'a, 'b, T> {
+impl<'a, T: MoveNew> Iterator for Drain<'a, T> {
   type Item = Pin<MoveRef<'a, T>>;
 
   fn next(&mut self) -> Option<Pin<MoveRef<'a, T>>> {
@@ -1156,10 +1033,10 @@ impl<'a, 'b: 'a, T: MoveNew> Iterator for Drain<'a, 'b, T> {
     let i = self.index;
     self.index += 1;
     unsafe {
-      let flag = MoveRef::drop_flag(&self.vec);
+      let flag = self.vec.drop_flag.flag().longer_lifetime();
       // Lengthen the lifetime to avoid capturing the &'_ self lifetime.
       Some(mem::transmute::<_, Pin<MoveRef<T>>>(
-        self.vec.get_unchecked_move(i, flag),
+        self.vec.get_unchecked_unbound_move(i, flag),
       ))
     }
   }
@@ -1170,8 +1047,13 @@ impl<'a, 'b: 'a, T: MoveNew> Iterator for Drain<'a, 'b, T> {
   }
 }
 
-impl<T: MoveNew> Drop for Drain<'_, '_, T> {
+impl<T: MoveNew> Drop for Drain<'_, T> {
   fn drop(&mut self) {
+    if !self.vec.drop_flag.flag().is_dead() {
+      // We've been bamboozled; no allocation re-use for you!
+      return;
+    }
+
     unsafe {
       ptr::drop_in_place(self.as_slice() as *const [T] as *mut [T]);
     }
@@ -1184,10 +1066,10 @@ impl<T: MoveNew> Drop for Drain<'_, '_, T> {
         unsafe {
           // SAFETY: We don't need to set a trap, since `move_new()` is tailored to
           // the specific type and should not be rudely forgetting anything.
-          let src = self.vec.get_unchecked_aliasing_move(
-            i + self.tail_start,
-            self.vec.drop_flag.flag(),
-          );
+          let qf = QuietFlag::new();
+          let src = self
+            .vec
+            .get_unchecked_unbound_move(i + self.tail_start, qf.flag());
           let dst = self.vec.slot(i + start);
           MoveNew::move_new(src, dst);
         }
@@ -1195,5 +1077,8 @@ impl<T: MoveNew> Drop for Drain<'_, '_, T> {
     }
 
     unsafe { self.vec.set_len(start + self.tail_len) }
+
+    // Put the vector back in its place.
+    mem::swap(self.place, &mut self.vec);
   }
 }

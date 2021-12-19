@@ -15,13 +15,16 @@
 //! Tests for `moveit::Vec`.
 
 use std::mem;
+use std::pin::Pin;
 use std::vec::Vec as StdVec;
 
+use crate::move_ref::MoveRef;
+use crate::moveit;
 use crate::new;
+use crate::vec::Vec;
+
 use crate::test_util::LeakCheck;
 use crate::test_util::Tracked;
-use crate::vec::Vec;
-use crate::moveit;
 
 #[test]
 fn new() {
@@ -122,6 +125,7 @@ fn reserve() {
 
 #[test]
 #[should_panic]
+#[cfg_attr(miri, ignore)]
 fn reserve_too_big() {
   let mut x = Vec::from([1, 2, 3, 4, 5]);
   x.reserve(isize::MAX as usize / 4);
@@ -134,11 +138,7 @@ fn push() {
   let _lc = LeakCheck::start();
 
   // Use a shorter length for miri to finish in a reasonable timeframe.
-  let len = if cfg!(miri) {
-    64
-  } else {
-    1024
-  };
+  let len = if cfg!(miri) { 64 } else { 1024 };
 
   let mut v = Vec::new();
   for i in 0..len {
@@ -285,5 +285,94 @@ fn drain_nothing() {
   let _lc = LeakCheck::start();
 
   let mut v = Vec::of((0..29).map(|i| Tracked::new(i)));
-  assert!(Vec::drain(moveit!(&move &mut v), ..0).next().is_none());
+  let v2 = v.clone();
+  assert!(v.drain(..0).next().is_none());
+  assert_eq!(v, v2);
+}
+
+#[test]
+fn drain_prefix() {
+  let _lc = LeakCheck::start();
+
+  let mut v = Vec::of((0..29).map(|i| Tracked::new(i)));
+  let cap = v.capacity();
+  assert_eq!(
+    v.drain(..5).map(|p| p.get()).collect::<StdVec<_>>(),
+    [0, 1, 2, 3, 4]
+  );
+  assert_eq!(v.as_slice(), (5..29).collect::<StdVec<_>>().as_slice());
+  assert_eq!(cap, v.capacity());
+}
+
+#[test]
+fn drain_suffix() {
+  let _lc = LeakCheck::start();
+
+  let mut v = Vec::of((0..29).map(|i| Tracked::new(i)));
+  let cap = v.capacity();
+  assert_eq!(
+    v.drain(27..).map(|p| p.get()).collect::<StdVec<_>>(),
+    [27, 28]
+  );
+  assert_eq!(v.as_slice(), (0..27).collect::<StdVec<_>>().as_slice());
+  assert_eq!(cap, v.capacity());
+}
+
+#[test]
+fn drain_middle() {
+  let _lc = LeakCheck::start();
+
+  let mut v = Vec::of((0..29).map(|i| Tracked::new(i)));
+  let cap = v.capacity();
+  assert_eq!(
+    v.drain(5..27).map(|p| p.get()).collect::<StdVec<_>>(),
+    (5..27).collect::<StdVec<_>>()
+  );
+  assert_eq!(v.as_slice(), [0, 1, 2, 3, 4, 27, 28]);
+  assert_eq!(cap, v.capacity());
+}
+
+#[test]
+fn drain_all() {
+  let _lc = LeakCheck::start();
+
+  let mut v = Vec::of((0..29).map(|i| Tracked::new(i)));
+  let cap = v.capacity();
+  assert_eq!(
+    v.drain(..).map(|p| p.get()).collect::<StdVec<_>>(),
+    (0..29).collect::<StdVec<_>>()
+  );
+  assert!(v.is_empty());
+  assert_eq!(cap, v.capacity());
+}
+
+#[test]
+#[should_panic]
+#[cfg_attr(miri, ignore)]
+fn leak_drain() {
+  let _lc = LeakCheck::start();
+
+  let mut v = Vec::of((0..29).map(|i| Tracked::new(i)));
+  mem::forget(v.drain(..));
+}
+
+#[test]
+fn into_iter() {
+  let _lc = LeakCheck::start();
+
+  let v = Vec::of((0..29).map(|i| Tracked::new(i)));
+  for (i, x) in moveit!(&move v).into_iter().enumerate() {
+    let x: Pin<MoveRef<Tracked<i32>>> = x;
+    assert_eq!(x.get(), i as i32);
+  }
+}
+
+#[test]
+#[should_panic]
+#[cfg_attr(miri, ignore)]
+fn leak_into_iter() {
+  let _lc = LeakCheck::start();
+
+  let v = Vec::of((0..29).map(|i| Tracked::new(i)));
+  mem::forget(moveit!(&move v).into_iter());
 }

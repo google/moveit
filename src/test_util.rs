@@ -19,6 +19,7 @@ use core::cell::Cell;
 use core::fmt;
 use core::marker::PhantomData;
 use core::marker::PhantomPinned;
+use core::mem;
 use core::mem::MaybeUninit;
 use core::pin::Pin;
 
@@ -167,13 +168,18 @@ unsafe impl<T: fmt::Debug + Clone> CopyNew for Tracked<T> {
 impl<T: fmt::Debug> Swap for Tracked<T> {
   fn swap_with(self: Pin<&mut Self>, that: Pin<&mut Self>) {
     unsafe {
-      let zelf = Pin::into_inner_unchecked(self);
-      let that = Pin::into_inner_unchecked(that);
+      let zelf = mem::transmute_copy::<_, *mut Self>(&self);
+      let that = mem::transmute_copy::<_, *mut Self>(&that);
 
-      core::mem::swap(&mut zelf.inner, &mut that.inner);
+      let inner1 = std::ptr::addr_of_mut!((*zelf).inner);
+      let inner2 = std::ptr::addr_of_mut!((*that).inner);
 
-      eprintln!("swap: {:?} -> {:?}", zelf, that);
+      let tmp = inner1.read();
+      inner1.write(inner2.read());
+      inner2.write(tmp);
     }
+
+    eprintln!("swap: {:?} -> {:?}", self, that);
   }
 }
 
