@@ -1,4 +1,4 @@
-# Copyright 2021 Google LLC
+# Copyright 2022 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,24 +13,19 @@
 # limitations under the License.
 
 [package]
-name = "moveit"
-version = "0.3.0"
+name = "moveit-cxx-tests"
+version = "0.0.0"
 authors = ["Miguel Young de la Sota <mcyoung@google.com>"]
 edition = "2018"
 repository = "https://github.com/google/moveit"
+publish = false
 
-keywords = ["ffi", "no_std", "macros", "lifetime", "ownership"]
-readme = "README.crates-io.md"
-license = "Apache-2.0"
-description = "A library for safe, in-place construction of Rust (and C++!) objects."
+[dependencies]
+cxx = "1.0"
 
-[features]
-alloc = []
-default = ["alloc"]
+[dependencies.moveit]
+path = ".."
+features = ["cxx"]
 
-[dependencies.cxx]
-version = "1.0"
-optional = true
-
-[workspace]
-members = ["cxx-tests"]
+[build-dependencies]
+cxx-build = "1"

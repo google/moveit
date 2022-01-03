@@ -138,7 +138,7 @@
 //!
 //! [`Pin` documentation]: https://doc.rust-lang.org/std/pin/index.html#drop-guarantee
 
-#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(any(test, feature = "cxx")), no_std)]
 #![deny(warnings, missing_docs, unused)]
 // These clippy lints are somewhat at odds with our use of `new()`.
 #![allow(clippy::new_ret_no_self, clippy::wrong_self_convention)]
@@ -149,6 +149,9 @@ extern crate alloc;
 #[cfg(feature = "alloc")]
 mod alloc_support;
 
+#[cfg(feature = "cxx")]
+mod cxx_support;
+
 pub mod drop_flag;
 pub mod move_ref;
 pub mod new;
@@ -157,6 +160,9 @@ pub mod slot;
 // #[doc(inline)]
 pub use crate::{
   move_ref::{DerefMove, MoveRef},
-  new::{CopyNew, Emplace, MoveNew, New, TryNew},
+  new::{CopyNew, Emplace, EmplaceUnpinned, MoveNew, New, TryNew},
   slot::Slot,
 };
+
+#[cfg(feature = "cxx")]
+pub use cxx_support::MakeCppStorage;

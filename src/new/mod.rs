@@ -145,12 +145,26 @@ unsafe impl<N: New> TryNew for N {
 /// A pointer type with a stable address that a [`New`] may be used to
 /// construct a value with.
 ///
-/// This enables an `emplace()` method for [`Box`], [`Rc`], and [`Arc`]. Users
-/// are encouraged to implement this function for their own heap-allocated smart
-/// pointers.
-pub trait Emplace<T>: Sized {
+/// Most smart pointer types do not intrinsically have this property,
+/// but their `Pin`ned versions do.
+///
+/// Users are encouraged to implement this trait for their own heap-allocated
+/// smart pointers. This trait should be implemented either:
+///
+/// * for the smart pointer type itself, if it intrinsically provides address
+///   stability (for instance, there is no way for a caller to get a
+///   mutable reference to its contents, by which `mem::swap` could
+///   be applied). Or,
+/// * for a `Pin` of their smart pointer type, if `Pin` is required
+///   to provide such guarantees.
+///
+/// In the latter case, a blanket implementation of [`Emplace`]
+/// will arrange for shim `emplace` and `try_emplace` methods also
+/// to be present on the smart pointer type itself, so callers do not
+/// have to use `Pin::<MySmartPointer>::emplace(...)`.
+pub trait EmplaceUnpinned<T>: Sized {
   /// Constructs a new smart pointer and emplaces `n` into its storage.
-  fn emplace<N: New<Output = T>>(n: N) -> Pin<Self> {
+  fn emplace<N: New<Output = T>>(n: N) -> Self {
     match Self::try_emplace(n) {
       Ok(x) => x,
       Err(e) => match e {},
@@ -158,8 +172,33 @@ pub trait Emplace<T>: Sized {
   }
 
   /// Constructs a new smart pointer and tries to emplace `n` into its storage.
-  fn try_emplace<N: TryNew<Output = T>>(n: N) -> Result<Pin<Self>, N::Error>;
+  fn try_emplace<N: TryNew<Output = T>>(n: N) -> Result<Self, N::Error>;
 }
+
+/// A pointer type which, when pinned, has a stable address that a [`New`] may
+/// be used to construct a value with.
+///
+/// This enables an `emplace()` method for [`Box`], [`Rc`], and [`Arc`].
+///
+/// Implementers of new smart pointers should typically not implement
+/// `Emplace` directly, but instead implement [`EmplaceUnpinned`] either on
+/// their type, or on a pinned version of their type.
+pub trait Emplace<T>: Sized
+where
+  Pin<Self>: EmplaceUnpinned<T>,
+{
+  /// Constructs a new smart pointer and emplaces `n` into its storage.
+  fn emplace<N: New<Output = T>>(n: N) -> Pin<Self> {
+    Pin::<Self>::emplace(n)
+  }
+
+  /// Constructs a new smart pointer and tries to emplace `n` into its storage.
+  fn try_emplace<N: TryNew<Output = T>>(n: N) -> Result<Pin<Self>, N::Error> {
+    Pin::<Self>::try_emplace(n)
+  }
+}
+
+impl<T, P> Emplace<T> for P where Pin<P>: EmplaceUnpinned<T> {}
 
 #[doc(hidden)]
 pub struct With<N, F>(N, F);

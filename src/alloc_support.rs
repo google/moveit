@@ -23,7 +23,7 @@ use alloc::sync::Arc;
 
 use crate::move_ref::DerefMove;
 use crate::move_ref::MoveRef;
-use crate::new::Emplace;
+use crate::new::EmplaceUnpinned;
 use crate::new::TryNew;
 use crate::slot::DroppingSlot;
 
@@ -46,8 +46,8 @@ unsafe impl<T> DerefMove for Box<T> {
   }
 }
 
-impl<T> Emplace<T> for Box<T> {
-  fn try_emplace<N: TryNew<Output = T>>(n: N) -> Result<Pin<Self>, N::Error> {
+impl<T> EmplaceUnpinned<T> for Pin<Box<T>> {
+  fn try_emplace<N: TryNew<Output = T>>(n: N) -> Result<Self, N::Error> {
     let mut uninit = Box::new(MaybeUninit::<T>::uninit());
     unsafe {
       let pinned = Pin::new_unchecked(&mut *uninit);
@@ -59,8 +59,8 @@ impl<T> Emplace<T> for Box<T> {
   }
 }
 
-impl<T> Emplace<T> for Rc<T> {
-  fn try_emplace<N: TryNew<Output = T>>(n: N) -> Result<Pin<Self>, N::Error> {
+impl<T> EmplaceUnpinned<T> for Pin<Rc<T>> {
+  fn try_emplace<N: TryNew<Output = T>>(n: N) -> Result<Self, N::Error> {
     let uninit = Rc::new(MaybeUninit::<T>::uninit());
     unsafe {
       let pinned = Pin::new_unchecked(&mut *(Rc::as_ptr(&uninit) as *mut _));
@@ -72,8 +72,8 @@ impl<T> Emplace<T> for Rc<T> {
   }
 }
 
-impl<T> Emplace<T> for Arc<T> {
-  fn try_emplace<N: TryNew<Output = T>>(n: N) -> Result<Pin<Self>, N::Error> {
+impl<T> EmplaceUnpinned<T> for Pin<Arc<T>> {
+  fn try_emplace<N: TryNew<Output = T>>(n: N) -> Result<Self, N::Error> {
     let uninit = Arc::new(MaybeUninit::<T>::uninit());
     unsafe {
       let pinned = Pin::new_unchecked(&mut *(Arc::as_ptr(&uninit) as *mut _));
