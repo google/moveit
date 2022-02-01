@@ -287,7 +287,9 @@ impl<'a, T> From<MoveRef<'a, T>> for Pin<MoveRef<'a, T>> {
 /// pinned reference, it must take care to not move its contents at any time.
 /// In particular, the implementation of [`PinExt::as_move()`] must be safe by
 /// definition.
-pub unsafe trait DerefMove: DerefMut + Sized {
+pub unsafe trait DerefMove: Sized {
+  /// The type referenced by this pointer.
+  type Target;
   /// The "pure storage" form of `Self`, which owns the storage but not the
   /// pointee.
   type Storage: Sized;
@@ -307,7 +309,8 @@ pub unsafe trait DerefMove: DerefMut + Sized {
     Self: 'frame;
 }
 
-unsafe impl<'a, T: ?Sized> DerefMove for MoveRef<'a, T> {
+unsafe impl<'a, T> DerefMove for MoveRef<'a, T> {
+  type Target = T;
   type Storage = ();
 
   fn deref_move<'frame>(
@@ -323,9 +326,10 @@ unsafe impl<'a, T: ?Sized> DerefMove for MoveRef<'a, T> {
 
 unsafe impl<P> DerefMove for Pin<P>
 where
-  P: DerefMove,
-  P::Target: Unpin,
+  P: DerefMove + DerefMut,
+  <P as DerefMove>::Target: Unpin,
 {
+  type Target = <P as DerefMove>::Target;
   // SAFETY: We do not need to pin the storage, because `P::Target: Unpin`.
   type Storage = P::Storage;
 
@@ -359,16 +363,16 @@ pub trait PinExt<P: DerefMove> {
   fn as_move<'frame>(
     self,
     storage: DroppingSlot<'frame, P::Storage>,
-  ) -> Pin<MoveRef<'frame, P::Target>>
+  ) -> Pin<MoveRef<'frame, <P as DerefMove>::Target>>
   where
     Self: 'frame;
 }
 
-impl<P: DerefMove> PinExt<P> for Pin<P> {
+impl<P: DerefMove + DerefMut> PinExt<P> for Pin<P> {
   fn as_move<'frame>(
     self,
     storage: DroppingSlot<'frame, P::Storage>,
-  ) -> Pin<MoveRef<'frame, P::Target>>
+  ) -> Pin<MoveRef<'frame, <P as DerefMove>::Target>>
   where
     Self: 'frame,
   {

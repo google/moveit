@@ -20,7 +20,14 @@ use std::pin::Pin;
 use cxx::memory::UniquePtrTarget;
 use cxx::UniquePtr;
 
+use crate::new;
+use crate::slot;
+use crate::slot::DroppingSlot;
+use crate::DerefMove;
 use crate::EmplaceUnpinned;
+use crate::MoveNew;
+use crate::MoveRef;
+use crate::New;
 use crate::TryNew;
 
 /// A type which has the ability to create heap storage space
@@ -73,5 +80,58 @@ impl<T: MakeCppStorage + UniquePtrTarget> EmplaceUnpinned<T> for UniquePtr<T> {
       }
       Ok(UniquePtr::from_raw(uninit_ptr))
     }
+  }
+}
+
+#[doc(hidden)]
+/// This is an implementation detail of the support for moving out of
+/// a [`cxx::UniquePtr`]. It stores a raw pointer which points to
+/// C++ space which is allocated yet unoccupied, and will arrange to
+/// deallocate that if it goes out of scope.
+pub struct DeallocateSpaceGuard<T: MakeCppStorage>(*mut T);
+
+impl<T: MakeCppStorage> DeallocateSpaceGuard<T> {
+  fn assume_init_mut(&mut self) -> &mut T {
+    unsafe { &mut *self.0 }
+  }
+}
+
+impl<T: MakeCppStorage> Drop for DeallocateSpaceGuard<T> {
+  fn drop(&mut self) {
+    unsafe { T::free_uninitialized_cpp_storage(self.0) };
+  }
+}
+
+unsafe impl<T: MakeCppStorage + UniquePtrTarget> DerefMove for UniquePtr<T> {
+  type Target = T;
+  type Storage = DeallocateSpaceGuard<T>;
+
+  #[inline]
+  fn deref_move<'frame>(
+    self,
+    storage: DroppingSlot<'frame, Self::Storage>,
+  ) -> MoveRef<'frame, Self::Target>
+  where
+    Self: 'frame,
+  {
+    let ptr = self.into_raw();
+    let cast = DeallocateSpaceGuard(ptr);
+    let (storage, drop_flag) = storage.put(cast);
+    unsafe { MoveRef::new_unchecked(storage.assume_init_mut(), drop_flag) }
+  }
+}
+
+/// Create a `New` by consuming a [`cxx::UniquePtr`].
+pub fn mov_up<T>(up: UniquePtr<T>) -> impl New<Output = T>
+where
+  T: UniquePtrTarget + MoveNew + MakeCppStorage,
+{
+  unsafe {
+    new::by_raw(move |this| {
+      MoveNew::move_new(
+        Pin::new_unchecked(up.deref_move(slot!(#[dropping]))),
+        this,
+      );
+    })
   }
 }

@@ -166,3 +166,6 @@ pub use crate::{
 
 #[cfg(feature = "cxx")]
 pub use cxx_support::MakeCppStorage;
+
+#[cfg(feature = "cxx")]
+pub use cxx_support::mov_up;
