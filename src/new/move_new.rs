@@ -17,7 +17,6 @@ use core::pin::Pin;
 
 use crate::move_ref::DerefMove;
 use crate::move_ref::MoveRef;
-use crate::move_ref::PinExt as _;
 use crate::new;
 use crate::new::New;
 use crate::slot;
@@ -56,15 +55,17 @@ pub unsafe trait MoveNew: Sized {
 /// }
 /// ```
 #[inline]
-pub fn mov<P>(ptr: impl Into<Pin<P>>) -> impl New<Output = P::Target>
+pub fn mov<P>(ptr: P) -> impl New<Output = P::Target>
 where
   P: DerefMove,
   P::Target: MoveNew,
 {
-  let ptr = ptr.into();
   unsafe {
     new::by_raw(move |this| {
-      MoveNew::move_new(Pin::as_move(ptr, slot!(#[dropping])), this);
+      MoveNew::move_new(
+        Pin::new_unchecked(ptr.deref_move(slot!(#[dropping]))),
+        this,
+      );
     })
   }
 }

@@ -287,7 +287,7 @@ impl<'a, T> From<MoveRef<'a, T>> for Pin<MoveRef<'a, T>> {
 /// pinned reference, it must take care to not move its contents at any time.
 /// In particular, the implementation of [`PinExt::as_move()`] must be safe by
 /// definition.
-pub unsafe trait DerefMove: DerefMut + Sized {
+pub unsafe trait DerefMove: Deref + Sized {
   /// The "pure storage" form of `Self`, which owns the storage but not the
   /// pointee.
   type Storage: Sized;
@@ -323,7 +323,7 @@ unsafe impl<'a, T: ?Sized> DerefMove for MoveRef<'a, T> {
 
 unsafe impl<P> DerefMove for Pin<P>
 where
-  P: DerefMove,
+  P: DerefMove + DerefMut,
   P::Target: Unpin,
 {
   // SAFETY: We do not need to pin the storage, because `P::Target: Unpin`.
