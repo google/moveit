@@ -22,6 +22,7 @@ publish = false
 
 [dependencies]
 cxx = "1.0"
+once_cell = "1.9"
 
 [dependencies.moveit]
 path = ".."
