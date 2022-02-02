@@ -138,7 +138,7 @@ fn test_move_from_up() {
   foo.pin_mut().modify();
   assert_eq!(foo.get_status(), METHOD_CALLED);
   moveit! {
-    let mut foo2 = moveit::mov_up(foo);
+    let mut foo2 = moveit::new::mov(foo);
   }
   assert_eq!(foo2.get_status(), METHOD_CALLED);
 }

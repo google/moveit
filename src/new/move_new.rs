@@ -14,6 +14,7 @@
 
 use core::mem::MaybeUninit;
 use core::pin::Pin;
+use core::ops::Deref;
 
 use crate::move_ref::DerefMove;
 use crate::move_ref::MoveRef;
@@ -21,6 +22,7 @@ use crate::move_ref::PinExt as _;
 use crate::new;
 use crate::new::New;
 use crate::slot;
+use crate::slot::DroppingSlot;
 
 /// A move constructible type: a destination-aware `Clone` that destroys the
 /// moved-from value.
@@ -56,15 +58,39 @@ pub unsafe trait MoveNew: Sized {
 /// }
 /// ```
 #[inline]
-pub fn mov<P>(ptr: impl Into<Pin<P>>) -> impl New<Output = P::Target>
+pub fn mov<'a, T, MS>(ptr: MS) -> impl New<Output = T>
 where
-  P: DerefMove,
-  P::Target: MoveNew,
+  MS: MoveSource<'a, T>,
+  T: MoveNew,
+  MS::Storage: 'a
 {
-  let ptr = ptr.into();
   unsafe {
     new::by_raw(move |this| {
-      MoveNew::move_new(Pin::as_move(ptr, slot!(#[dropping])), this);
+      MoveNew::move_new(MS::get_move_source(ptr, slot!(#[dropping])), this);
     })
+  }
+}
+
+/// Does movey stuff.
+pub trait MoveSource<'frame, T> {
+  /// Underlying storage for the movey thing.
+  type Storage;
+  /// Actually does movey stuff.
+  fn get_move_source(
+    self,
+    storage: DroppingSlot<'frame, Self::Storage>,
+  ) -> Pin<MoveRef<T>>;
+}
+
+impl<'frame, T, P> MoveSource<'frame, T> for Pin<P>
+where
+  P: Deref<Target = T> + DerefMove + 'frame,
+{
+  type Storage = P::Storage;
+  fn get_move_source(
+    self,
+    storage: DroppingSlot<'frame, P::Storage>,
+  ) -> Pin<MoveRef<T>> {
+    Pin::as_move(self, storage)
   }
 }

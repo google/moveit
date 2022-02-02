@@ -20,14 +20,11 @@ use std::pin::Pin;
 use cxx::memory::UniquePtrTarget;
 use cxx::UniquePtr;
 
-use crate::new;
-use crate::slot;
+use crate::new::MoveSource;
 use crate::slot::DroppingSlot;
 use crate::DerefMove;
 use crate::EmplaceUnpinned;
-use crate::MoveNew;
 use crate::MoveRef;
-use crate::New;
 use crate::TryNew;
 
 /// A type which has the ability to create heap storage space
@@ -120,17 +117,14 @@ unsafe impl<T: MakeCppStorage + UniquePtrTarget> DerefMove for UniquePtr<T> {
   }
 }
 
-/// Create a `New` by consuming a [`cxx::UniquePtr`].
-pub fn mov_up<T>(up: UniquePtr<T>) -> impl New<Output = T>
-where
-  T: UniquePtrTarget + MoveNew + MakeCppStorage,
+impl<'frame, T: UniquePtrTarget + MakeCppStorage> MoveSource<'frame, T>
+  for UniquePtr<T>
 {
-  unsafe {
-    new::by_raw(move |this| {
-      MoveNew::move_new(
-        Pin::new_unchecked(up.deref_move(slot!(#[dropping]))),
-        this,
-      );
-    })
+  type Storage = DeallocateSpaceGuard<T>;
+  fn get_move_source(
+    self,
+    storage: DroppingSlot<'frame, DeallocateSpaceGuard<T>>,
+  ) -> Pin<MoveRef<T>> {
+    unsafe { Pin::new_unchecked(self.deref_move(storage)) }
   }
 }
