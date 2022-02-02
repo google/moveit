@@ -48,5 +48,9 @@ inline void FreeUninitializedFoo(Foo* foo) {
 }
 
 inline void foo_constructor(Foo& foo) { new (&foo) Foo(); }
+inline void foo_destructor(Foo* foo) { foo->~Foo(); }
+inline void foo_move(Foo* dest, Foo* src) {
+  new (dest) Foo(std::move(*src));
+}
 
 #endif  // CXX_SUPPORT_TEST_CPP

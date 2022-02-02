@@ -31,6 +31,8 @@ mod ffi {
     unsafe fn FreeUninitializedFoo(ptr: *mut Foo);
 
     fn foo_constructor(_this: Pin<&mut Foo>);
+    unsafe fn foo_destructor(_this: *mut Foo);
+    unsafe fn foo_move(_this: *mut Foo, src: *mut Foo);
 
     fn get_status(self: &Foo) -> u8;
     fn modify(self: Pin<&mut Foo>);
@@ -43,12 +45,15 @@ mod ffi {
 mod bindgenish {
   use std::marker::PhantomData;
   use std::marker::PhantomPinned;
+  use std::mem::MaybeUninit;
+  use std::pin::Pin;
 
   use cxx::kind::Opaque;
   use cxx::type_id;
   use cxx::ExternType;
 
   use moveit::MakeCppStorage;
+  use moveit::MoveNew;
   use moveit::New;
 
   #[repr(C)]
@@ -86,6 +91,18 @@ mod bindgenish {
       }
     }
   }
+
+  unsafe impl MoveNew for Foo {
+    unsafe fn move_new(
+      mut src: Pin<moveit::MoveRef<Self>>,
+      this: Pin<&mut MaybeUninit<Self>>,
+    ) {
+      let src: &mut _ = ::std::pin::Pin::into_inner_unchecked(src.as_mut());
+      let this = std::mem::transmute(this);
+      super::ffi::foo_move(this, src);
+      super::ffi::foo_destructor(src);
+    }
+  }
 }
 
 #[test]
@@ -112,4 +129,16 @@ fn test_unique_ptr_emplacement() {
   assert_eq!(foo.get_status(), INITIALIZED);
   foo.pin_mut().modify();
   assert_eq!(foo.get_status(), METHOD_CALLED);
+}
+
+#[test]
+fn test_move_from_up() {
+  let mut foo = UniquePtr::emplace(bindgenish::Foo::new());
+  assert_eq!(foo.get_status(), INITIALIZED);
+  foo.pin_mut().modify();
+  assert_eq!(foo.get_status(), METHOD_CALLED);
+  moveit! {
+    let mut foo2 = moveit::mov_up(foo);
+  }
+  assert_eq!(foo2.get_status(), METHOD_CALLED);
 }
