@@ -103,7 +103,6 @@ impl<T: MakeCppStorage> Drop for DeallocateSpaceGuard<T> {
 }
 
 unsafe impl<T: MakeCppStorage + UniquePtrTarget> DerefMove for UniquePtr<T> {
-  type Target = T;
   type Storage = DeallocateSpaceGuard<T>;
 
   #[inline]

@@ -28,7 +28,6 @@ use crate::new::TryNew;
 use crate::slot::DroppingSlot;
 
 unsafe impl<T> DerefMove for Box<T> {
-  type Target = T;
   type Storage = Box<MaybeUninit<T>>;
 
   #[inline]
