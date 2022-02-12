@@ -43,7 +43,6 @@
 //! best case it will leak memory, but in some cases will crash the program in
 //! order to observe safety guarantees.
 
-use core::marker::Unpin;
 use core::mem;
 use core::ops::Deref;
 use core::ops::DerefMut;
@@ -310,6 +309,7 @@ pub unsafe trait DerefMove: Deref + Sized {
 unsafe impl<'a, T: ?Sized> DerefMove for MoveRef<'a, T> {
   type Storage = ();
 
+  #[inline]
   fn deref_move<'frame>(
     self,
     _storage: DroppingSlot<'frame, ()>,
@@ -321,13 +321,50 @@ unsafe impl<'a, T: ?Sized> DerefMove for MoveRef<'a, T> {
   }
 }
 
-unsafe impl<P> DerefMove for Pin<P>
+unsafe impl<'a, T> DerefMove for Pin<&'a T>
 where
-  P: DerefMove + DerefMut,
-  P::Target: Unpin,
+  Pin<&'a T>: DerefMove + DerefMut,
+  Pin<&'a T>: Deref<Target = T>,
+  T: Unpin,
 {
   // SAFETY: We do not need to pin the storage, because `P::Target: Unpin`.
-  type Storage = P::Storage;
+  type Storage = Self;
+
+  #[inline]
+  fn deref_move<'frame>(
+    self,
+    storage: DroppingSlot<'frame, Self::Storage>,
+  ) -> MoveRef<'frame, Self::Target>
+  where
+    Self: 'frame,
+  {
+    Pin::into_inner(MoveRef::into_pin(DerefMove::deref_move(self, storage)))
+  }
+}
+
+unsafe impl<'a, T> DerefMove for Pin<&'a mut T>
+where
+  Pin<&'a mut T>: DerefMove + DerefMut,
+  Pin<&'a mut T>: Deref<Target = T>,
+  T: Unpin,
+{
+  // SAFETY: We do not need to pin the storage, because `P::Target: Unpin`.
+  type Storage = Self;
+
+  #[inline]
+  fn deref_move<'frame>(
+    self,
+    storage: DroppingSlot<'frame, Self::Storage>,
+  ) -> MoveRef<'frame, Self::Target>
+  where
+    Self: 'frame,
+  {
+    Pin::into_inner(MoveRef::into_pin(DerefMove::deref_move(self, storage)))
+  }
+}
+
+unsafe impl<'a, T> DerefMove for Pin<MoveRef<'a, T>> {
+  type Storage = <MoveRef<'a, T> as DerefMove>::Storage;
 
   fn deref_move<'frame>(
     self,
@@ -336,7 +373,7 @@ where
   where
     Self: 'frame,
   {
-    Pin::into_inner(Pin::as_move(self, storage))
+    unsafe { Pin::into_inner_unchecked(self).deref_move(storage) }
   }
 }
 
@@ -515,10 +552,16 @@ macro_rules! moveit {
 }
 
 #[cfg(test)]
-mod test {
+pub(crate) mod test {
+  use crate::new;
+  use crate::MoveNew;
+  use crate::New;
+
   use super::*;
   use std::alloc;
   use std::alloc::Layout;
+  use std::marker::PhantomPinned;
+  use std::mem::MaybeUninit;
 
   #[test]
   fn deref_move_of_move_ref() {
@@ -588,6 +631,34 @@ mod test {
     // double-free.
     unsafe {
       alloc::dealloc(ptr as *mut u8, Layout::new::<i32>());
+    }
+  }
+
+  // This type is reused in test code in cxx_support.
+  #[derive(Default)]
+  pub(crate) struct Immovable {
+    _pin: PhantomPinned,
+  }
+
+  impl Immovable {
+    pub(crate) fn new() -> impl New<Output = Self> {
+      new::default()
+    }
+  }
+
+  unsafe impl MoveNew for Immovable {
+    unsafe fn move_new(
+      _src: Pin<MoveRef<Self>>,
+      _this: Pin<&mut MaybeUninit<Self>>,
+    ) {
+    }
+  }
+
+  #[test]
+  fn test_mov() {
+    moveit! {
+      let foo = Immovable::new();
+      let _foo = new::mov(foo);
     }
   }
 }

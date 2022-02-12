@@ -79,11 +79,11 @@ impl<T: MakeCppStorage + UniquePtrTarget> EmplaceUnpinned<T> for UniquePtr<T> {
   }
 }
 
-#[doc(hidden)]
 /// This is an implementation detail of the support for moving out of
 /// a [`cxx::UniquePtr`]. It stores a raw pointer which points to
 /// C++ space which is allocated yet unoccupied, and will arrange to
 /// deallocate that if it goes out of scope.
+#[doc(hidden)]
 pub struct DeallocateSpaceGuard<T: MakeCppStorage>(*mut T);
 
 impl<T: MakeCppStorage> DeallocateSpaceGuard<T> {
@@ -109,8 +109,7 @@ unsafe impl<T: MakeCppStorage + UniquePtrTarget> DerefMove for UniquePtr<T> {
   where
     Self: 'frame,
   {
-    let ptr = self.into_raw();
-    let cast = DeallocateSpaceGuard(ptr);
+    let cast = DeallocateSpaceGuard(self.into_raw());
     let (storage, drop_flag) = storage.put(cast);
     unsafe { MoveRef::new_unchecked(storage.assume_init_mut(), drop_flag) }
   }

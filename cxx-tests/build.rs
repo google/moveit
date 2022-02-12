@@ -21,4 +21,5 @@ fn main() {
 
   println!("cargo:rerun-if-changed=src/tests.rs");
   println!("cargo:rerun-if-changed=src/cxx_support_test_cpp.h");
+  println!("cargo:rerun-if-changed=src/new_helpers.h");
 }
