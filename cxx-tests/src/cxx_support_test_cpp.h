@@ -116,13 +116,28 @@ auto delete_appropriately(T* obj) -> decltype(delete_imp(obj, 0), void())
   delete_imp(obj, 0);
 }
 
-template void delete_appropriately<Foo>(Foo*);
-template void delete_appropriately<Bar>(Bar*);
+template<class T>
+auto new_imp(size_t count, int, T*) -> decltype(T::operator new(count))
+{
+  return T::operator new(count);
+}
+
+template<class T>
+auto new_imp(size_t count, long, T*) -> decltype(::operator new(count))
+{
+  return ::operator new(count);
+}
+
+template<class T>
+auto new_appropriately(size_t count, T* dummy) -> T*
+{
+  // 0 is a better match for the first 'delete_imp' so will match
+  // preferentially.
+  return static_cast<T*>(new_imp(count, 0, dummy));
+}
 
 inline Foo* foo_create_uninitialized() {
-  std::allocator<Foo> alloc;
-  set_status(Status::Allocated);
-  return alloc.allocate(1);
+  return new_appropriately<Foo>(1, static_cast<Foo*>(nullptr));
 }
 
 inline void foo_free_uninitialized(Foo* foo) {
@@ -134,9 +149,7 @@ inline void foo_free_uninitialized(Foo* foo) {
 }
 
 inline Bar* bar_create_uninitialized() {
-  std::allocator<Bar> alloc;
-  set_status(Status::Allocated);
-  return alloc.allocate(1);
+  return new_appropriately<Bar>(1, static_cast<Bar*>(nullptr));
 }
 
 inline void bar_free_uninitialized(Bar* bar) {
