@@ -553,13 +553,15 @@ macro_rules! moveit {
 
 #[cfg(test)]
 pub(crate) mod test {
-  use crate::new::{default, mov};
-  use crate::{MoveNew, New};
+  use crate::new;
+  use crate::MoveNew;
+  use crate::New;
 
   use super::*;
   use std::alloc;
   use std::alloc::Layout;
   use std::marker::PhantomPinned;
+  use std::mem::MaybeUninit;
 
   #[test]
   fn deref_move_of_move_ref() {
@@ -640,25 +642,23 @@ pub(crate) mod test {
 
   impl Immovable {
     pub(crate) fn new() -> impl New<Output = Self> {
-      default()
+      new::default()
     }
   }
 
   unsafe impl MoveNew for Immovable {
     unsafe fn move_new(
       _src: Pin<MoveRef<Self>>,
-      _this: Pin<&mut mem::MaybeUninit<Self>>,
+      _this: Pin<&mut MaybeUninit<Self>>,
     ) {
     }
   }
 
   #[test]
   fn test_mov() {
-    crate::moveit! {
-      let foo = Immovable::new()
-    }
-    crate::moveit! {
-      let _foo = mov(foo);
+    moveit! {
+      let foo = Immovable::new();
+      let _foo = new::mov(foo);
     }
   }
 }

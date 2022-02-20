@@ -58,7 +58,7 @@ unsafe impl<T> DerefMove for Pin<Box<T>> {
     Self: 'frame,
   {
     // Safety: boxes never move their contents
-    (unsafe { Pin::into_inner_unchecked(self) }).deref_move(storage)
+    unsafe { Pin::into_inner_unchecked(self).deref_move(storage) }
   }
 }
 
@@ -103,14 +103,14 @@ impl<T> EmplaceUnpinned<T> for Pin<Arc<T>> {
 
 #[cfg(test)]
 mod tests {
-
-  use crate::{move_ref::test::Immovable, new::mov, Emplace};
+  use crate::move_ref::test::Immovable;
+  use crate::moveit;
+  use crate::new::mov;
+  use crate::Emplace;
 
   #[test]
   fn test_mov_box() {
     let foo = Box::emplace(Immovable::new());
-    crate::moveit! {
-      let _foo = mov(foo);
-    }
+    moveit!(let _foo = mov(foo));
   }
 }
