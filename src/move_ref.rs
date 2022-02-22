@@ -328,7 +328,7 @@ where
   T: Unpin,
 {
   // SAFETY: We do not need to pin the storage, because `P::Target: Unpin`.
-  type Storage = Pin<&'a T>;
+  type Storage = Self;
 
   #[inline]
   fn deref_move<'frame>(
@@ -338,7 +338,7 @@ where
   where
     Self: 'frame,
   {
-    Pin::into_inner(Pin::as_move(Pin::new(self), storage))
+    Pin::into_inner(MoveRef::into_pin(DerefMove::deref_move(self, storage)))
   }
 }
 
@@ -349,7 +349,7 @@ where
   T: Unpin,
 {
   // SAFETY: We do not need to pin the storage, because `P::Target: Unpin`.
-  type Storage = Pin<&'a mut T>;
+  type Storage = Self;
 
   #[inline]
   fn deref_move<'frame>(
@@ -359,7 +359,7 @@ where
   where
     Self: 'frame,
   {
-    Pin::into_inner(Pin::as_move(Pin::new(self), storage))
+    Pin::into_inner(MoveRef::into_pin(DerefMove::deref_move(self, storage)))
   }
 }
 
