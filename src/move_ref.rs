@@ -373,7 +373,7 @@ unsafe impl<'a, T> DerefMove for Pin<MoveRef<'a, T>> {
   where
     Self: 'frame,
   {
-    (unsafe { Pin::into_inner_unchecked(self) }).deref_move(storage)
+    unsafe { Pin::into_inner_unchecked(self).deref_move(storage) }
   }
 }
 
