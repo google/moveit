@@ -24,6 +24,9 @@ readme = "README.crates-io.md"
 license = "Apache-2.0 OR MIT"
 description = "A library for safe, in-place construction of Rust (and C++!) objects."
 
+[dependencies]
+memoffset = "0.7"
+
 [features]
 alloc = []
 default = ["alloc"]

@@ -370,7 +370,8 @@ macro_rules! slot {
   ($($name:ident $(: $ty:ty)?),* $(,)*) => {$(
     let mut uninit = $crate::slot::__macro::core::mem::MaybeUninit::<
       $crate::slot!(@tyof $($ty)?)
-    >::uninit();let trap = $crate::drop_flag::TrappedFlag::new();
+    >::uninit();
+    let trap = $crate::drop_flag::TrappedFlag::new();
     let $name = $crate::slot::__macro::new_unchecked_hygine_hack(
       &mut uninit,
       trap.flag()
