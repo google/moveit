@@ -46,22 +46,6 @@ unsafe impl<T> DerefMove for Box<T> {
   }
 }
 
-unsafe impl<T> DerefMove for Pin<Box<T>> {
-  type Storage = <Box<T> as DerefMove>::Storage;
-
-  #[inline]
-  fn deref_move<'frame>(
-    self,
-    storage: DroppingSlot<'frame, Self::Storage>,
-  ) -> MoveRef<'frame, Self::Target>
-  where
-    Self: 'frame,
-  {
-    // Safety: boxes never move their contents
-    unsafe { Pin::into_inner_unchecked(self).deref_move(storage) }
-  }
-}
-
 impl<T> EmplaceUnpinned<T> for Pin<Box<T>> {
   fn try_emplace<N: TryNew<Output = T>>(n: N) -> Result<Self, N::Error> {
     let mut uninit = Box::new(MaybeUninit::<T>::uninit());
@@ -103,14 +87,14 @@ impl<T> EmplaceUnpinned<T> for Pin<Arc<T>> {
 
 #[cfg(test)]
 mod tests {
-  use crate::move_ref::test::Immovable;
-  use crate::moveit;
-  use crate::new::mov;
-  use crate::Emplace;
+  // use crate::move_ref::test::Immovable;
+  // use crate::moveit;
+  // use crate::new::mov;
+  // use crate::Emplace;
 
-  #[test]
-  fn test_mov_box() {
-    let foo = Box::emplace(Immovable::new());
-    moveit!(let _foo = mov(foo));
-  }
+  // #[test]
+  // fn test_mov_box() {
+  //   let foo = Box::emplace(Immovable::new());
+  //   moveit!(let _foo = mov(foo));
+  // }
 }
