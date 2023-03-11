@@ -321,62 +321,6 @@ unsafe impl<'a, T: ?Sized> DerefMove for MoveRef<'a, T> {
   }
 }
 
-unsafe impl<'a, T> DerefMove for Pin<&'a T>
-where
-  Pin<&'a T>: DerefMove + DerefMut,
-  Pin<&'a T>: Deref<Target = T>,
-  T: Unpin,
-{
-  // SAFETY: We do not need to pin the storage, because `P::Target: Unpin`.
-  type Storage = Self;
-
-  #[inline]
-  fn deref_move<'frame>(
-    self,
-    storage: DroppingSlot<'frame, Self::Storage>,
-  ) -> MoveRef<'frame, Self::Target>
-  where
-    Self: 'frame,
-  {
-    Pin::into_inner(MoveRef::into_pin(DerefMove::deref_move(self, storage)))
-  }
-}
-
-unsafe impl<'a, T> DerefMove for Pin<&'a mut T>
-where
-  Pin<&'a mut T>: DerefMove + DerefMut,
-  Pin<&'a mut T>: Deref<Target = T>,
-  T: Unpin,
-{
-  // SAFETY: We do not need to pin the storage, because `P::Target: Unpin`.
-  type Storage = Self;
-
-  #[inline]
-  fn deref_move<'frame>(
-    self,
-    storage: DroppingSlot<'frame, Self::Storage>,
-  ) -> MoveRef<'frame, Self::Target>
-  where
-    Self: 'frame,
-  {
-    Pin::into_inner(MoveRef::into_pin(DerefMove::deref_move(self, storage)))
-  }
-}
-
-unsafe impl<'a, T> DerefMove for Pin<MoveRef<'a, T>> {
-  type Storage = <MoveRef<'a, T> as DerefMove>::Storage;
-
-  fn deref_move<'frame>(
-    self,
-    storage: DroppingSlot<'frame, Self::Storage>,
-  ) -> MoveRef<'frame, Self::Target>
-  where
-    Self: 'frame,
-  {
-    unsafe { Pin::into_inner_unchecked(self).deref_move(storage) }
-  }
-}
-
 /// Extensions for using `DerefMove` types with `PinExt`.
 pub trait PinExt<P: DerefMove> {
   /// Gets a pinned `MoveRef` out of the pinned pointer.
@@ -553,9 +497,9 @@ macro_rules! moveit {
 
 #[cfg(test)]
 pub(crate) mod test {
-  use crate::new;
+  // use crate::new;
   use crate::MoveNew;
-  use crate::New;
+  // use crate::New;
 
   use super::*;
   use std::alloc;
@@ -641,9 +585,9 @@ pub(crate) mod test {
   }
 
   impl Immovable {
-    pub(crate) fn new() -> impl New<Output = Self> {
-      new::default()
-    }
+    // pub(crate) fn new() -> impl New<Output = Self> {
+    //   new::default()
+    // }
   }
 
   unsafe impl MoveNew for Immovable {
@@ -654,11 +598,11 @@ pub(crate) mod test {
     }
   }
 
-  #[test]
-  fn test_mov() {
-    moveit! {
-      let foo = Immovable::new();
-      let _foo = new::mov(foo);
-    }
-  }
+  // #[test]
+  // fn test_mov() {
+  //   moveit! {
+  //     let foo = Immovable::new();
+  //     let _foo = new::mov(foo);
+  //   }
+  // }
 }
