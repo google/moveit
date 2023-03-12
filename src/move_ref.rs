@@ -177,7 +177,107 @@ impl<'a, T> From<MoveRef<'a, T>> for Pin<MoveRef<'a, T>> {
   }
 }
 
+/// A trait for getting a pinned [`MoveRef`] for some pointer type `P` with respect to `Self`.
+///
+/// Conceptually, this trait is similar to [`DerefMove`], except that where
+/// [`DerefMove::deref_move`] produces a `MoveRef`, [`AsMove::as_move`] produces a `Pin<MoveRef>`.
+///
+/// This trait is expected to be defined in conjunction with `DerefMove` where one of the impls for
+/// either of the respective traits depends on the other in some way, depending on the API for the
+/// pointer type `P` with respect to [`DerefMut`].
+///
+/// For example, the `Box<T>: AsMove<Self>` impl is defined in terms of the `Box<T>: DerefMove`
+/// impl, because it is always the case that `Box<T>: DerefMut` regardless of whether `T: Unpin`. So
+/// `Box<T>: AsMove<Self>` simply performs the `DerefMove` operation and then pins the resulting
+/// `MoveRef`.
+///
+/// On the other hand, the `cxx::UniquePtr<T>: DerefMove` impl is defined in terms of the
+/// `UniquePtr<T>: AsMove<Self>` impl, because a `cxx::UniquePtr<T>: DerefMut` only if `T: Unpin`.
+/// So for `cxx::UniquePtr<T>`, because it behaves like `Pin<Box<T>>` with respect to `DerefMut`,
+/// it's always possible to safely produce a `Pin<MoveRef<T>>`, but not always possible to safely
+/// produce as `MoveRef<T>`.
+///
+/// Due to this subtle inter-dependency between these traits, and because `AsMove<P>` takes a type
+/// parameter (allowing non-uniform impls like `AsMove<P>: Pin<P>`), whereas `DerefMove` does not,
+/// it is not feasible to simply require that one of the traits depends on the other as a super
+/// trait.
+///
+/// Unfortunately this requires that the associated `Storage` type be duplicated for each trait.
+/// However, for individual impls, the specific definition of `Storage` should be reused from one or
+/// the other respectively defined trait impls, depending on which is considered the more fundamental.
+pub trait AsMove<P: Deref> {
+  /// The "pure storage" form of `Self`, which owns the storage but not the
+  /// pointee.
+  type Storage: Sized;
+
+  /// Gets a pinned `MoveRef` out of `Self`.
+  ///
+  /// This function is best paired with [`moveit!()`]:
+  /// ```
+  /// # use core::pin::Pin;
+  /// # use moveit::{moveit, slot::DroppingSlot, move_ref::AsMove};
+  /// let ptr = Box::pin(5);
+  /// moveit::slot!(#[dropping] storage);
+  /// ptr.as_move(storage);
+  /// ```
+  /// Taking a trip through [`moveit!()`] is unavoidable due to the nature of
+  /// `MoveRef`.
+  ///
+  /// Compare with [`Pin::as_mut()`].
+  fn as_move<'frame>(
+    self,
+    storage: DroppingSlot<'frame, Self::Storage>,
+  ) -> Pin<MoveRef<'frame, P::Target>>
+  where
+    Self: 'frame;
+}
+
+impl<'f, T: ?Sized> AsMove<Self> for MoveRef<'f, T> {
+  type Storage = ();
+
+  #[inline]
+  fn as_move<'frame>(
+    self,
+    storage: DroppingSlot<'frame, Self::Storage>,
+  ) -> Pin<MoveRef<'frame, <Self as Deref>::Target>>
+  where
+    Self: 'frame,
+  {
+    MoveRef::into_pin(DerefMove::deref_move(self, storage))
+  }
+}
+
+impl<P: DerefMove> AsMove<P> for Pin<P> {
+  type Storage = P::Storage;
+
+  #[inline]
+  fn as_move<'frame>(
+    self,
+    storage: DroppingSlot<'frame, Self::Storage>,
+  ) -> Pin<MoveRef<'frame, P::Target>>
+  where
+    Self: 'frame,
+  {
+    unsafe {
+      // SAFETY:
+      //
+      // It is safe to unwrap the `Pin` because `deref_move()` must not move out of the actual
+      // storage, merely shuffle pointers around, and immediately after the call to `deref_move()`
+      // we repin with `MoveRef::into_pin`, so the `Pin` API invariants are not violated later.
+      MoveRef::into_pin(DerefMove::deref_move(
+        Pin::into_inner_unchecked(self),
+        storage,
+      ))
+    }
+  }
+}
+
 /// Moving dereference operations.
+///
+/// *Note: This trait is intended to be defined in conjunction with [`AsMove`],
+/// and there is a subtle interdependency between the two traits. We recommend
+/// also reading it's documentation for a better understanding of how these
+/// traits fit together.*
 ///
 /// This trait is the `&move` analogue of [`Deref`], for taking a pointer that
 /// is the *sole owner* its pointee and converting it to a [`MoveRef`]. In
@@ -284,7 +384,7 @@ impl<'a, T> From<MoveRef<'a, T>> for Pin<MoveRef<'a, T>> {
 ///
 /// `deref_move()` must also be `Pin`-safe; even though it does not accept a
 /// pinned reference, it must take care to not move its contents at any time.
-/// In particular, the implementation of [`PinExt::as_move()`] must be safe by
+/// In particular, the implementation of [`AsMove::as_move()`] must be safe by
 /// definition.
 pub unsafe trait DerefMove: Deref + Sized {
   /// The "pure storage" form of `Self`, which owns the storage but not the
@@ -307,12 +407,12 @@ pub unsafe trait DerefMove: Deref + Sized {
 }
 
 unsafe impl<'a, T: ?Sized> DerefMove for MoveRef<'a, T> {
-  type Storage = ();
+  type Storage = <Self as AsMove<Self>>::Storage;
 
   #[inline]
   fn deref_move<'frame>(
     self,
-    _storage: DroppingSlot<'frame, ()>,
+    _storage: DroppingSlot<'frame, Self::Storage>,
   ) -> MoveRef<'frame, T>
   where
     Self: 'frame,
@@ -338,51 +438,6 @@ where
     Self: 'frame,
   {
     Pin::into_inner(Pin::as_move(self, storage))
-  }
-}
-
-/// Extensions for using `DerefMove` types with `PinExt`.
-pub trait PinExt<P: DerefMove> {
-  /// Gets a pinned `MoveRef` out of the pinned pointer.
-  ///
-  /// This function is best paired with [`moveit!()`]:
-  /// ```
-  /// # use core::pin::Pin;
-  /// # use moveit::{moveit, slot::DroppingSlot, move_ref::PinExt as _};
-  /// let ptr = Box::pin(5);
-  /// moveit::slot!(#[dropping] storage);
-  /// Pin::as_move(ptr, storage);
-  /// ```
-  /// Taking a trip through [`moveit!()`] is unavoidable due to the nature of
-  /// `MoveRef`.
-  ///
-  /// Compare with [`Pin::as_mut()`].
-  fn as_move<'frame>(
-    self,
-    storage: DroppingSlot<'frame, P::Storage>,
-  ) -> Pin<MoveRef<'frame, P::Target>>
-  where
-    Self: 'frame;
-}
-
-impl<P: DerefMove> PinExt<P> for Pin<P> {
-  fn as_move<'frame>(
-    self,
-    storage: DroppingSlot<'frame, P::Storage>,
-  ) -> Pin<MoveRef<'frame, P::Target>>
-  where
-    Self: 'frame,
-  {
-    unsafe {
-      // SAFETY:
-      // 1. `Pin<P>` is `repr(transparent)` and can transmute to `P`.
-      // 2. `deref_move()` must not move out of the actual storage, merely
-      //    shuffle pointers around.
-      MoveRef::into_pin(DerefMove::deref_move(
-        Pin::into_inner_unchecked(self),
-        storage,
-      ))
-    }
   }
 }
 
@@ -517,9 +572,9 @@ macro_rules! moveit {
 
 #[cfg(test)]
 pub(crate) mod test {
-  // use crate::new;
+  use crate::new;
   use crate::MoveNew;
-  // use crate::New;
+  use crate::New;
 
   use super::*;
   use std::alloc;
@@ -605,9 +660,9 @@ pub(crate) mod test {
   }
 
   impl Immovable {
-    // pub(crate) fn new() -> impl New<Output = Self> {
-    //   new::default()
-    // }
+    pub(crate) fn new() -> impl New<Output = Self> {
+      new::default()
+    }
   }
 
   unsafe impl MoveNew for Immovable {
@@ -618,11 +673,11 @@ pub(crate) mod test {
     }
   }
 
-  // #[test]
-  // fn test_mov() {
-  //   moveit! {
-  //     let foo = Immovable::new();
-  //     let _foo = new::mov(foo);
-  //   }
-  // }
+  #[test]
+  fn test_mov() {
+    moveit! {
+      let foo = Immovable::new();
+      let _foo = new::mov(foo);
+    }
+  }
 }
