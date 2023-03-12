@@ -21,15 +21,28 @@ use alloc::boxed::Box;
 use alloc::rc::Rc;
 use alloc::sync::Arc;
 
-use crate::move_ref::DerefMove;
 use crate::move_ref::MoveRef;
+use crate::move_ref::{AsMove, DerefMove};
 use crate::new::EmplaceUnpinned;
 use crate::new::TryNew;
 use crate::slot::DroppingSlot;
 
-unsafe impl<T> DerefMove for Box<T> {
+impl<T> AsMove for Box<T> {
   type Storage = Box<MaybeUninit<T>>;
 
+  #[inline]
+  fn as_move<'frame>(
+    self,
+    storage: DroppingSlot<'frame, Self::Storage>,
+  ) -> Pin<MoveRef<'frame, Self::Target>>
+  where
+    Self: 'frame,
+  {
+    MoveRef::into_pin(self.deref_move(storage))
+  }
+}
+
+unsafe impl<T> DerefMove for Box<T> {
   #[inline]
   fn deref_move<'frame>(
     self,
@@ -87,14 +100,14 @@ impl<T> EmplaceUnpinned<T> for Pin<Arc<T>> {
 
 #[cfg(test)]
 mod tests {
-  // use crate::move_ref::test::Immovable;
-  // use crate::moveit;
-  // use crate::new::mov;
-  // use crate::Emplace;
+  use crate::move_ref::test::Immovable;
+  use crate::moveit;
+  use crate::new::mov;
+  use crate::Emplace;
 
-  // #[test]
-  // fn test_mov_box() {
-  //   let foo = Box::emplace(Immovable::new());
-  //   moveit!(let _foo = mov(foo));
-  // }
+  #[test]
+  fn test_mov_box() {
+    let foo = Box::emplace(Immovable::new());
+    moveit!(let _foo = mov(foo));
+  }
 }

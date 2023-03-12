@@ -22,9 +22,9 @@
 //! Normally, this isn't a problem for Rust code, since the storage of an object
 //! is destroyed immediately after it is destroyed. [`DerefMove`], however,
 //! breaks this expectation: it separates the destructors from its storage and
-//! contents into two separately destroyed objects: a [`DerefMove::Storage`]
-//! and a [`MoveRef`]. If the [`MoveRef`] is [`mem::forget`]'ed, we lose: the
-//! storage will potentially be re-used.
+//! contents into two separately destroyed objects: a [`AsMove::Storage`] and a
+//! [`MoveRef`]. If the [`MoveRef`] is [`mem::forget`]'ed, we lose: the storage
+//! will potentially be re-used.
 //!
 //! Therefore, we must somehow detect that [`MoveRef`]s fail to be destroyed
 //! when the destructor for the corresponding storage is run, and remediate it,
@@ -61,7 +61,7 @@ use core::ops::DerefMut;
 
 #[cfg(doc)]
 use {
-  crate::move_ref::{DerefMove, MoveRef},
+  crate::move_ref::{AsMove, DerefMove, MoveRef},
   alloc::boxed::Box,
   core::pin::Pin,
 };
@@ -132,9 +132,9 @@ impl DropFlag<'_> {
 /// flag can be used to signal whether to destroy or leak the value, but the
 /// destruction occurs lazily rather than immediately when the flag is flipped.
 ///
-/// This is useful as a [`DerefMove::Storage`] type for types where the
-/// storage should be leaked if the inner type was somehow not destroyed, such
-/// as in the case of heap-allocated storage like [`Box<T>`].
+/// This is useful as an [`AsMove::Storage`] type for types where the storage
+/// should be leaked if the inner type was somehow not destroyed, such as in
+/// the case of heap-allocated storage like [`Box<T>`].
 pub struct DroppingFlag<T> {
   value: ManuallyDrop<T>,
   counter: Cell<usize>,
