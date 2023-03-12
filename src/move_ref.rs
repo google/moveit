@@ -321,6 +321,26 @@ unsafe impl<'a, T: ?Sized> DerefMove for MoveRef<'a, T> {
   }
 }
 
+unsafe impl<P> DerefMove for Pin<P>
+where
+  P: DerefMove + DerefMut,
+  P::Target: Unpin,
+{
+  // SAFETY: We do not need to pin the storage, because `P::Target: Unpin`.
+  type Storage = P::Storage;
+
+  #[inline]
+  fn deref_move<'frame>(
+    self,
+    storage: DroppingSlot<'frame, Self::Storage>,
+  ) -> MoveRef<'frame, Self::Target>
+  where
+    Self: 'frame,
+  {
+    Pin::into_inner(Pin::as_move(self, storage))
+  }
+}
+
 /// Extensions for using `DerefMove` types with `PinExt`.
 pub trait PinExt<P: DerefMove> {
   /// Gets a pinned `MoveRef` out of the pinned pointer.
