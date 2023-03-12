@@ -20,6 +20,7 @@ use std::pin::Pin;
 use cxx::memory::UniquePtrTarget;
 use cxx::UniquePtr;
 
+use crate::move_ref::AsMove;
 use crate::slot::DroppingSlot;
 use crate::DerefMove;
 use crate::EmplaceUnpinned;
@@ -98,9 +99,33 @@ impl<T: MakeCppStorage> Drop for DeallocateSpaceGuard<T> {
   }
 }
 
-unsafe impl<T: MakeCppStorage + UniquePtrTarget> DerefMove for UniquePtr<T> {
+impl<T> AsMove for UniquePtr<T>
+where
+  T: UniquePtrTarget + MakeCppStorage,
+{
   type Storage = DeallocateSpaceGuard<T>;
 
+  #[inline]
+  fn as_move<'frame>(
+    self,
+    storage: DroppingSlot<'frame, Self::Storage>,
+  ) -> Pin<MoveRef<'frame, Self::Target>>
+  where
+    Self: 'frame,
+  {
+    let cast = DeallocateSpaceGuard(self.into_raw());
+    let (storage, drop_flag) = storage.put(cast);
+    let this =
+      unsafe { MoveRef::new_unchecked(storage.assume_init_mut(), drop_flag) };
+    MoveRef::into_pin(this)
+  }
+}
+
+unsafe impl<T> DerefMove for UniquePtr<T>
+where
+  T: MakeCppStorage + UniquePtrTarget,
+  T: Unpin,
+{
   #[inline]
   fn deref_move<'frame>(
     self,
@@ -109,8 +134,6 @@ unsafe impl<T: MakeCppStorage + UniquePtrTarget> DerefMove for UniquePtr<T> {
   where
     Self: 'frame,
   {
-    let cast = DeallocateSpaceGuard(self.into_raw());
-    let (storage, drop_flag) = storage.put(cast);
-    unsafe { MoveRef::new_unchecked(storage.assume_init_mut(), drop_flag) }
+    Pin::into_inner(self.as_move(storage))
   }
 }
