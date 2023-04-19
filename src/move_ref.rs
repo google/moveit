@@ -51,7 +51,7 @@ use core::ptr;
 
 #[cfg(doc)]
 use {
-  crate::drop_flag,
+  crate::{drop_flag, moveit},
   alloc::{boxed::Box, rc::Rc, sync::Arc},
   core::mem::{ManuallyDrop, MaybeUninit},
 };
