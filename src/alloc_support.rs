@@ -15,17 +15,28 @@
 //! Support for the `alloc` crate, when available.
 
 use core::mem::MaybeUninit;
+use core::ops::Deref;
 use core::pin::Pin;
 
 use alloc::boxed::Box;
-use alloc::rc::Rc;
-use alloc::sync::Arc;
 
-use crate::move_ref::DerefMove;
 use crate::move_ref::MoveRef;
-use crate::new::EmplaceUnpinned;
-use crate::new::TryNew;
+use crate::move_ref::{AsMove, DerefMove};
 use crate::slot::DroppingSlot;
+
+impl<T> AsMove<Self> for Box<T> {
+  type Storage = <Self as DerefMove>::Storage;
+
+  fn as_move<'frame>(
+    self,
+    storage: DroppingSlot<'frame, Self::Storage>,
+  ) -> Pin<MoveRef<'frame, <Self as Deref>::Target>>
+  where
+    Self: 'frame,
+  {
+    MoveRef::into_pin(self.deref_move(storage))
+  }
+}
 
 unsafe impl<T> DerefMove for Box<T> {
   type Storage = Box<MaybeUninit<T>>;
@@ -43,61 +54,6 @@ unsafe impl<T> DerefMove for Box<T> {
 
     let (storage, drop_flag) = storage.put(cast);
     unsafe { MoveRef::new_unchecked(storage.assume_init_mut(), drop_flag) }
-  }
-}
-
-unsafe impl<T> DerefMove for Pin<Box<T>> {
-  type Storage = <Box<T> as DerefMove>::Storage;
-
-  #[inline]
-  fn deref_move<'frame>(
-    self,
-    storage: DroppingSlot<'frame, Self::Storage>,
-  ) -> MoveRef<'frame, Self::Target>
-  where
-    Self: 'frame,
-  {
-    // Safety: boxes never move their contents
-    unsafe { Pin::into_inner_unchecked(self).deref_move(storage) }
-  }
-}
-
-impl<T> EmplaceUnpinned<T> for Pin<Box<T>> {
-  fn try_emplace<N: TryNew<Output = T>>(n: N) -> Result<Self, N::Error> {
-    let mut uninit = Box::new(MaybeUninit::<T>::uninit());
-    unsafe {
-      let pinned = Pin::new_unchecked(&mut *uninit);
-      n.try_new(pinned)?;
-      Ok(Pin::new_unchecked(Box::from_raw(
-        Box::into_raw(uninit).cast::<T>(),
-      )))
-    }
-  }
-}
-
-impl<T> EmplaceUnpinned<T> for Pin<Rc<T>> {
-  fn try_emplace<N: TryNew<Output = T>>(n: N) -> Result<Self, N::Error> {
-    let uninit = Rc::new(MaybeUninit::<T>::uninit());
-    unsafe {
-      let pinned = Pin::new_unchecked(&mut *(Rc::as_ptr(&uninit) as *mut _));
-      n.try_new(pinned)?;
-      Ok(Pin::new_unchecked(Rc::from_raw(
-        Rc::into_raw(uninit).cast::<T>(),
-      )))
-    }
-  }
-}
-
-impl<T> EmplaceUnpinned<T> for Pin<Arc<T>> {
-  fn try_emplace<N: TryNew<Output = T>>(n: N) -> Result<Self, N::Error> {
-    let uninit = Arc::new(MaybeUninit::<T>::uninit());
-    unsafe {
-      let pinned = Pin::new_unchecked(&mut *(Arc::as_ptr(&uninit) as *mut _));
-      n.try_new(pinned)?;
-      Ok(Pin::new_unchecked(Arc::from_raw(
-        Arc::into_raw(uninit).cast::<T>(),
-      )))
-    }
   }
 }
 

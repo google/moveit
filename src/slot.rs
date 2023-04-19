@@ -68,7 +68,10 @@ use crate::new::New;
 use crate::new::TryNew;
 
 #[cfg(doc)]
-use {crate::move_ref::DerefMove, alloc::boxed::Box};
+use {
+  crate::{move_ref::DerefMove, moveit, slot},
+  alloc::boxed::Box,
+};
 
 /// An empty slot on the stack into which a value could be emplaced.
 ///

@@ -14,15 +14,17 @@
 
 //! Support for `cxx` types.
 
+use core::ops::Deref;
 use std::mem::MaybeUninit;
 use std::pin::Pin;
 
 use cxx::memory::UniquePtrTarget;
 use cxx::UniquePtr;
 
+use crate::move_ref::AsMove;
 use crate::slot::DroppingSlot;
 use crate::DerefMove;
-use crate::EmplaceUnpinned;
+use crate::Emplace;
 use crate::MoveRef;
 use crate::TryNew;
 
@@ -62,7 +64,9 @@ pub unsafe trait MakeCppStorage: Sized {
   unsafe fn free_uninitialized_cpp_storage(ptr: *mut Self);
 }
 
-impl<T: MakeCppStorage + UniquePtrTarget> EmplaceUnpinned<T> for UniquePtr<T> {
+impl<T: MakeCppStorage + UniquePtrTarget> Emplace<T> for UniquePtr<T> {
+  type Output = Self;
+
   fn try_emplace<N: TryNew<Output = T>>(n: N) -> Result<Self, N::Error> {
     unsafe {
       let uninit_ptr = T::allocate_uninitialized_cpp_storage();
@@ -98,8 +102,34 @@ impl<T: MakeCppStorage> Drop for DeallocateSpaceGuard<T> {
   }
 }
 
-unsafe impl<T: MakeCppStorage + UniquePtrTarget> DerefMove for UniquePtr<T> {
+impl<T> AsMove<Self> for UniquePtr<T>
+where
+  T: UniquePtrTarget + MakeCppStorage,
+{
   type Storage = DeallocateSpaceGuard<T>;
+
+  #[inline]
+  fn as_move<'frame>(
+    self,
+    storage: DroppingSlot<'frame, Self::Storage>,
+  ) -> Pin<MoveRef<'frame, <Self as Deref>::Target>>
+  where
+    Self: 'frame,
+  {
+    let cast = DeallocateSpaceGuard(self.into_raw());
+    let (storage, drop_flag) = storage.put(cast);
+    let this =
+      unsafe { MoveRef::new_unchecked(storage.assume_init_mut(), drop_flag) };
+    MoveRef::into_pin(this)
+  }
+}
+
+unsafe impl<T> DerefMove for UniquePtr<T>
+where
+  T: MakeCppStorage + UniquePtrTarget,
+  T: Unpin,
+{
+  type Storage = <Self as AsMove<Self>>::Storage;
 
   #[inline]
   fn deref_move<'frame>(
@@ -109,8 +139,6 @@ unsafe impl<T: MakeCppStorage + UniquePtrTarget> DerefMove for UniquePtr<T> {
   where
     Self: 'frame,
   {
-    let cast = DeallocateSpaceGuard(self.into_raw());
-    let (storage, drop_flag) = storage.put(cast);
-    unsafe { MoveRef::new_unchecked(storage.assume_init_mut(), drop_flag) }
+    Pin::into_inner(self.as_move(storage))
   }
 }

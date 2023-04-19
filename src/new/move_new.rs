@@ -13,9 +13,10 @@
 // limitations under the License.
 
 use core::mem::MaybeUninit;
+use core::ops::Deref;
 use core::pin::Pin;
 
-use crate::move_ref::DerefMove;
+use crate::move_ref::AsMove;
 use crate::move_ref::MoveRef;
 use crate::new;
 use crate::new::New;
@@ -55,17 +56,14 @@ pub unsafe trait MoveNew: Sized {
 /// }
 /// ```
 #[inline]
-pub fn mov<P>(ptr: P) -> impl New<Output = P::Target>
+pub fn mov<P>(ptr: impl AsMove<P>) -> impl New<Output = P::Target>
 where
-  P: DerefMove,
+  P: Deref,
   P::Target: MoveNew,
 {
   unsafe {
     new::by_raw(move |this| {
-      MoveNew::move_new(
-        Pin::new_unchecked(ptr.deref_move(slot!(#[dropping]))),
-        this,
-      );
+      MoveNew::move_new(ptr.as_move(slot!(#[dropping])), this);
     })
   }
 }
