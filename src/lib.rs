@@ -160,7 +160,7 @@ pub mod slot;
 // #[doc(inline)]
 pub use crate::{
   move_ref::{AsMove, DerefMove, MoveRef},
-  new::{CopyNew, Emplace, EmplaceUnpinned, MoveNew, New, TryNew},
+  new::{CopyNew, Emplace, MoveNew, New, TryNew},
   slot::Slot,
 };
 

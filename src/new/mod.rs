@@ -20,13 +20,13 @@
 
 use core::convert::Infallible;
 use core::mem::MaybeUninit;
+use core::ops::Deref;
 use core::pin::Pin;
 
 #[cfg(doc)]
-use {
-  crate::new,
-  alloc::{boxed::Box, rc::Rc, sync::Arc},
-};
+use {crate::new, core::ops::DerefMut};
+
+use alloc::{boxed::Box, rc::Rc, sync::Arc};
 
 mod copy_new;
 mod factories;
@@ -142,29 +142,23 @@ unsafe impl<N: New> TryNew for N {
   }
 }
 
-/// A pointer type with a stable address that a [`New`] may be used to
+/// A pointer type that may be "emplaced" as a stable address which a [`New`] may be used to
 /// construct a value with.
 ///
-/// Most smart pointer types do not intrinsically have this property,
-/// but their `Pin`ned versions do.
+/// The `Emplace<T>::Output` type is usually either `Self` or `Pin<Self>` depending on the API of
+/// `Self` with respect to [`DerefMut`].
 ///
-/// Users are encouraged to implement this trait for their own heap-allocated
-/// smart pointers. This trait should be implemented either:
+/// For example, `Arc<T>`, `Box<T>`, and `Rc<T>` are all `Emplace<T, Output = Pin<Self>>`.
 ///
-/// * for the smart pointer type itself, if it intrinsically provides address
-///   stability (for instance, there is no way for a caller to get a
-///   mutable reference to its contents, by which `mem::swap` could
-///   be applied). Or,
-/// * for a `Pin` of their smart pointer type, if `Pin` is required
-///   to provide such guarantees.
-///
-/// In the latter case, a blanket implementation of [`Emplace`]
-/// will arrange for shim `emplace` and `try_emplace` methods also
-/// to be present on the smart pointer type itself, so callers do not
-/// have to use `Pin::<MySmartPointer>::emplace(...)`.
-pub trait EmplaceUnpinned<T>: Sized {
+/// However, `cxx::UniquePtr<T>: Emplace<T, Output = Self>`, since `cxx::UniquePtr<T>` already only
+/// allows obtaining pinned mutable references to `T` due to its more restrictive API, and hence
+/// `cxx::UniquePtr<T>` does not need to be pinned itself.
+pub trait Emplace<T>: Sized + Deref {
+  /// The stable address type within which a value of type `T` is emplaced.
+  type Output: Deref<Target = Self::Target>;
+
   /// Constructs a new smart pointer and emplaces `n` into its storage.
-  fn emplace<N: New<Output = T>>(n: N) -> Self {
+  fn emplace<N: New<Output = T>>(n: N) -> Self::Output {
     match Self::try_emplace(n) {
       Ok(x) => x,
       Err(e) => match e {},
@@ -172,33 +166,60 @@ pub trait EmplaceUnpinned<T>: Sized {
   }
 
   /// Constructs a new smart pointer and tries to emplace `n` into its storage.
-  fn try_emplace<N: TryNew<Output = T>>(n: N) -> Result<Self, N::Error>;
+  fn try_emplace<N: TryNew<Output = T>>(n: N)
+    -> Result<Self::Output, N::Error>;
 }
 
-/// A pointer type which, when pinned, has a stable address that a [`New`] may
-/// be used to construct a value with.
-///
-/// This enables an `emplace()` method for [`Box`], [`Rc`], and [`Arc`].
-///
-/// Implementers of new smart pointers should typically not implement
-/// `Emplace` directly, but instead implement [`EmplaceUnpinned`] either on
-/// their type, or on a pinned version of their type.
-pub trait Emplace<T>: Sized
-where
-  Pin<Self>: EmplaceUnpinned<T>,
-{
-  /// Constructs a new smart pointer and emplaces `n` into its storage.
-  fn emplace<N: New<Output = T>>(n: N) -> Pin<Self> {
-    Pin::<Self>::emplace(n)
-  }
+impl<T> Emplace<T> for Box<T> {
+  type Output = Pin<Self>;
 
-  /// Constructs a new smart pointer and tries to emplace `n` into its storage.
-  fn try_emplace<N: TryNew<Output = T>>(n: N) -> Result<Pin<Self>, N::Error> {
-    Pin::<Self>::try_emplace(n)
+  fn try_emplace<N: TryNew<Output = T>>(
+    n: N,
+  ) -> Result<Self::Output, N::Error> {
+    let mut uninit = Box::new(MaybeUninit::<T>::uninit());
+    unsafe {
+      let pinned = Pin::new_unchecked(&mut *uninit);
+      n.try_new(pinned)?;
+      Ok(Pin::new_unchecked(Box::from_raw(
+        Box::into_raw(uninit).cast::<T>(),
+      )))
+    }
   }
 }
 
-impl<T, P> Emplace<T> for P where Pin<P>: EmplaceUnpinned<T> {}
+impl<T> Emplace<T> for Rc<T> {
+  type Output = Pin<Self>;
+
+  fn try_emplace<N: TryNew<Output = T>>(
+    n: N,
+  ) -> Result<Self::Output, N::Error> {
+    let uninit = Rc::new(MaybeUninit::<T>::uninit());
+    unsafe {
+      let pinned = Pin::new_unchecked(&mut *(Rc::as_ptr(&uninit) as *mut _));
+      n.try_new(pinned)?;
+      Ok(Pin::new_unchecked(Rc::from_raw(
+        Rc::into_raw(uninit).cast::<T>(),
+      )))
+    }
+  }
+}
+
+impl<T> Emplace<T> for Arc<T> {
+  type Output = Pin<Self>;
+
+  fn try_emplace<N: TryNew<Output = T>>(
+    n: N,
+  ) -> Result<Self::Output, N::Error> {
+    let uninit = Arc::new(MaybeUninit::<T>::uninit());
+    unsafe {
+      let pinned = Pin::new_unchecked(&mut *(Arc::as_ptr(&uninit) as *mut _));
+      n.try_new(pinned)?;
+      Ok(Pin::new_unchecked(Arc::from_raw(
+        Arc::into_raw(uninit).cast::<T>(),
+      )))
+    }
+  }
+}
 
 #[doc(hidden)]
 pub struct With<N, F>(N, F);

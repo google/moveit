@@ -23,7 +23,7 @@ use cxx::UniquePtr;
 use crate::move_ref::AsMove;
 use crate::slot::DroppingSlot;
 use crate::DerefMove;
-use crate::EmplaceUnpinned;
+use crate::Emplace;
 use crate::MoveRef;
 use crate::TryNew;
 
@@ -63,7 +63,9 @@ pub unsafe trait MakeCppStorage: Sized {
   unsafe fn free_uninitialized_cpp_storage(ptr: *mut Self);
 }
 
-impl<T: MakeCppStorage + UniquePtrTarget> EmplaceUnpinned<T> for UniquePtr<T> {
+impl<T: MakeCppStorage + UniquePtrTarget> Emplace<T> for UniquePtr<T> {
+  type Output = Self;
+
   fn try_emplace<N: TryNew<Output = T>>(n: N) -> Result<Self, N::Error> {
     unsafe {
       let uninit_ptr = T::allocate_uninitialized_cpp_storage();

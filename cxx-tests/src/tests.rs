@@ -19,7 +19,6 @@ use std::sync::MutexGuard;
 use cxx::UniquePtr;
 use moveit::moveit;
 use moveit::Emplace;
-use moveit::EmplaceUnpinned;
 
 #[cxx::bridge]
 mod ffi {
