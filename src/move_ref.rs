@@ -421,6 +421,19 @@ unsafe impl<'a, T: ?Sized> DerefMove for MoveRef<'a, T> {
   }
 }
 
+/// Note that `DerefMove` cannot be used to move out of a `Pin<P>` when `P::Target: !Unpin`.
+/// ```compile_fail
+/// # use crate::{moveit::{Emplace, MoveRef, moveit}};
+/// # use core::{marker::PhantomPinned, pin::Pin};
+/// // Fails to compile because `Box<PhantomPinned>: Deref<Target = PhantomPinned>` and `PhantomPinned: !Unpin`.
+/// let ptr: Pin<Box<PhantomPinned>> = Box::emplace(moveit::new::default::<PhantomPinned>());
+/// moveit!(let mref = &move *ptr);
+///
+/// // Fails to compile because `MoveRef<PhantomPinned>: Deref<Target = PhantomPinned>` and `PhantomPinned: !Unpin`.
+/// moveit! {
+///   let mref0: Pin<MoveRef<PhantomPinned>> = moveit::new::default::<PhantomPinned>();
+///   let mref1 = &move *mref0;
+/// }
 unsafe impl<P> DerefMove for Pin<P>
 where
   P: DerefMove + DerefMut,
