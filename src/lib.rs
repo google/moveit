@@ -154,8 +154,9 @@ mod cxx_support;
 
 pub mod drop_flag;
 pub mod move_ref;
-pub mod new;
 pub mod slot;
+
+pub mod new;
 
 // #[doc(inline)]
 pub use crate::{

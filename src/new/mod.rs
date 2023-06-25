@@ -32,11 +32,39 @@ mod copy_new;
 mod factories;
 mod move_new;
 
+mod strukt;
+
 mod impls;
 
 pub use copy_new::*;
 pub use factories::*;
 pub use move_new::*;
+
+#[doc(hidden)]
+#[allow(clippy::missing_safety_doc)]
+pub mod __macro {
+  use super::*;
+  pub use memoffset;
+
+  #[inline(always)]
+  pub fn mut_cast<T>(x: *const T) -> *mut T {
+    x as _
+  }
+
+  #[inline(always)]
+  pub unsafe fn maybe_uninit_cast<'a, T>(
+    x: *const T,
+  ) -> Pin<&'a mut MaybeUninit<T>> {
+    Pin::new_unchecked(&mut *(x as *mut T as *mut MaybeUninit<T>))
+  }
+
+  pub struct Defer<F: FnMut()>(pub F);
+  impl<F: FnMut()> Drop for Defer<F> {
+    fn drop(&mut self) {
+      (self.0)()
+    }
+  }
+}
 
 /// An in-place constructor for a particular type.
 ///
