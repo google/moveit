@@ -157,11 +157,18 @@ pub mod move_ref;
 pub mod new;
 pub mod slot;
 
+#[cfg(feature = "alloc")]
+pub mod vec;
+
+#[cfg(test)]
+mod test_util;
+
 // #[doc(inline)]
 pub use crate::{
   move_ref::{AsMove, DerefMove, MoveRef},
   new::{CopyNew, Emplace, MoveNew, New, TryNew},
   slot::Slot,
+  vec::Vec,
 };
 
 #[cfg(feature = "cxx")]
